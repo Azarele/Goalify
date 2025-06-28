@@ -21,7 +21,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   userProfile
 }) => {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Core conversation state
+  const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  
+  // UI state
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
@@ -29,9 +34,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
+  
+  // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
   const [goalSetInSession, setGoalSetInSession] = useState(false);
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isConversationCompleted, setIsConversationCompleted] = useState(false);
   const [context, setContext] = useState<ConversationContext>({
     exploredOptions: [],
@@ -65,16 +71,22 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [activeConversationMessages]);
 
-  const loadConversation = async (conversationId: string) => {
+  // Step 4: Update the Application State
+  const handleConversationSelect = async (conversationId: string) => {
     try {
+      console.log('Loading conversation:', conversationId);
+      
+      // Step 3: Fetch the Specific Conversation
       const conversationMessages = await getConversationMessages(conversationId);
-      setMessages(conversationMessages);
+      
+      // Step 4: Update the Application State
+      setActiveConversationMessages(conversationMessages);
       setCurrentConversationId(conversationId);
       setHasStartedSession(true);
       
-      // Check if a goal has already been set in this conversation
+      // Analyze conversation state
       const hasGoalMessage = conversationMessages.some(m => 
         m.role === 'assistant' && 
         m.content.toLowerCase().includes('can i set a small challenge for you')
@@ -97,7 +109,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           timestamp: new Date()
         };
         
-        setMessages([...conversationMessages, welcomeBackMessage]);
+        setActiveConversationMessages([...conversationMessages, welcomeBackMessage]);
         setCurrentlyTyping(welcomeBackMessage.id);
         setIsConversationCompleted(false); // Allow continuation
         
@@ -111,23 +123,23 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           }
         }, welcomeBackMessage.content.length * 25);
       }
+      
+      console.log('Conversation loaded successfully with', conversationMessages.length, 'messages');
     } catch (error) {
       console.error('Error loading conversation:', error);
     }
   };
 
-  const handleConversationSelect = (conversationId: string) => {
-    loadConversation(conversationId);
-  };
-
   const handleNewConversation = () => {
-    setMessages([]);
+    // Clear all conversation state
+    setActiveConversationMessages([]);
     setCurrentConversationId(null);
     setHasStartedSession(false);
     setGoalSetInSession(false);
     setIsConversationCompleted(false);
     setInputText('');
     resetTranscript();
+    setCurrentlyTyping(null);
   };
 
   const playCoachResponse = async (text: string) => {
@@ -252,7 +264,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       // Save the initial message
       await saveMessage(conversationId, assistantMessage);
       
-      setMessages([assistantMessage]);
+      // Update state
+      setActiveConversationMessages([assistantMessage]);
       setCurrentlyTyping(assistantMessage.id);
       setHasStartedSession(true);
       setGoalSetInSession(false);
@@ -285,8 +298,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       isVoice
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    const newMessages = [...activeConversationMessages, userMessage];
+    setActiveConversationMessages(newMessages);
     setInputText('');
     resetTranscript();
 
@@ -314,7 +327,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         };
 
         const finalMessages = [...newMessages, conclusionMessage];
-        setMessages(finalMessages);
+        setActiveConversationMessages(finalMessages);
         setCurrentlyTyping(conclusionMessage.id);
 
         // Save conclusion message and mark conversation as completed
@@ -367,7 +380,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         }
       }
 
-      setMessages(finalMessages);
+      setActiveConversationMessages(finalMessages);
       setCurrentlyTyping(assistantMessage.id);
 
       // Save all new messages
@@ -395,7 +408,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         content: "I'm having trouble connecting right now. Could you try again?",
         timestamp: new Date()
       };
-      setMessages([...newMessages, errorMessage]);
+      setActiveConversationMessages([...newMessages, errorMessage]);
       
       if (currentConversationId) {
         await saveMessage(currentConversationId, errorMessage);
@@ -461,7 +474,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       <GoalSidebar 
         isOpen={rightSidebarOpen}
         onClose={() => setRightSidebarOpen(false)}
-        currentSession={currentConversationId ? { id: currentConversationId, messages, goals: [], insights: [], actions: [], completed: isConversationCompleted, date: new Date() } : null}
+        currentSession={currentConversationId ? { 
+          id: currentConversationId, 
+          messages: activeConversationMessages, 
+          goals: [], 
+          insights: [], 
+          actions: [], 
+          completed: isConversationCompleted, 
+          date: new Date() 
+        } : null}
         context={context}
         userProfile={userProfile}
       />
@@ -556,7 +577,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           ref={chatContainerRef}
           className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
         >
-          {messages.map((message, index) => (
+          {activeConversationMessages.map((message, index) => (
             <div
               key={message.id}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
