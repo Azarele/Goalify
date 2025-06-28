@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { Message, CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
@@ -88,7 +89,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const createNewSession = (): CoachingSession => {
     return {
-      id: `session_${Date.now()}`,
+      id: uuidv4(),
       date: new Date(),
       messages: [],
       goals: [],
