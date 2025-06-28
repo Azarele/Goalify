@@ -26,7 +26,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
-  // AI State Machine
+  // AI State Machine - Refined 5-State Model
   const [aiState, setAiState] = useState<AIState>('COACHING');
   const [goalProposed, setGoalProposed] = useState(false);
   const [userAcceptedGoal, setUserAcceptedGoal] = useState(false);
@@ -137,7 +137,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     
     // Check if goal was proposed
     const goalProposedMsg = assistantMessages.find(m => 
-      m.content.includes('can I set a small challenge for you')
+      m.content.includes('[GOAL]') || m.content.includes('can I set a small challenge for you')
     );
     
     if (goalProposedMsg) {
@@ -160,9 +160,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           );
           
           if (anythingElseMsg) {
-            setAiState('AWAITING_GOAL_RESPONSE');
+            setAiState('AWAITING_FINAL_RESPONSE');
           } else {
-            setAiState('AWAITING_GOAL_RESPONSE');
+            setAiState('ASKING_TO_CONCLUDE');
           }
         } else {
           setAiState('AWAITING_GOAL_RESPONSE');
@@ -263,8 +263,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
+  // CRITICAL: Detect [GOAL] tag in message for immediate goal creation
   const detectGoalInMessage = (content: string): boolean => {
-    return content.includes('can I set a small challenge for you');
+    return content.includes('[GOAL]');
+  };
+
+  const extractGoalFromMessage = (content: string): string => {
+    // Remove [GOAL] tag and extract the goal text
+    return content.replace('[GOAL]', '').trim();
   };
 
   const sendMessage = async (content: string, isVoice = false) => {
@@ -294,7 +300,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       // Analyze user response for state transitions
       const userResponse = content.toLowerCase().trim();
       
-      // Check if user is indicating they're done (for AWAITING_GOAL_RESPONSE state)
+      // Check if user is indicating they're done (for AWAITING_FINAL_RESPONSE state)
       const isDone = userResponse === 'no' || 
                      userResponse.includes('no thanks') || 
                      userResponse.includes("i'm good") ||
@@ -307,9 +313,20 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                           userResponse.includes('sure') || 
                           userResponse.includes('sounds good');
 
-      // Update state based on user response
+      // Update state based on user response and current AI state
+      let contextForAI = {
+        userName: userProfile?.name,
+        previousGoals: userProfile?.longTermGoals,
+        currentStage: newContext.growStage,
+        aiState,
+        goalProposed,
+        userAcceptedGoal: userAcceptedGoal || acceptedGoal
+      };
+
+      // State transitions based on user input
       if (aiState === 'AWAITING_GOAL_RESPONSE' && acceptedGoal && !userAcceptedGoal) {
         setUserAcceptedGoal(true);
+        contextForAI.userAcceptedGoal = true;
       }
 
       // Generate AI response using state machine
@@ -318,14 +335,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           role: m.role,
           content: m.content
         })),
-        context: {
-          userName: userProfile?.name,
-          previousGoals: userProfile?.longTermGoals,
-          currentStage: newContext.growStage,
-          aiState,
-          goalProposed,
-          userAcceptedGoal: userAcceptedGoal || acceptedGoal
-        }
+        context: contextForAI
       });
 
       const assistantMessage: Message = {
@@ -337,12 +347,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       let finalMessages = [...newMessages, assistantMessage];
 
-      // Handle goal detection and creation
+      // CRITICAL: Handle goal detection and immediate creation
       if (detectGoalInMessage(aiResponse.response) && !goalProposed) {
         setGoalProposed(true);
-        setAiState('AWAITING_GOAL_RESPONSE');
         
-        // Create goal in database
+        // Create goal in database IMMEDIATELY when proposed
         try {
           const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
           const generatedGoal = await generateGoalFromConversation(conversationHistory);
@@ -361,19 +370,21 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             };
             
             await saveGoal(user.id, currentConversationId, goal);
+            console.log('Goal created immediately upon proposal:', goal.description);
           }
         } catch (error) {
           console.error('Error creating goal:', error);
         }
-      } else {
-        // Update AI state based on response
-        setAiState(aiResponse.aiState);
-        setShowEndChatButton(aiResponse.shouldShowEndChat);
-        
-        if (aiResponse.shouldShowEndChat) {
-          setIsConversationCompleted(true);
-          await updateConversation(currentConversationId, { completed: true });
-        }
+      }
+
+      // Update AI state based on response
+      setAiState(aiResponse.aiState);
+      
+      // Handle End Chat button visibility
+      if (aiResponse.shouldShowEndChat || (aiState === 'AWAITING_FINAL_RESPONSE' && isDone)) {
+        setShowEndChatButton(true);
+        setIsConversationCompleted(true);
+        await updateConversation(currentConversationId, { completed: true });
       }
 
       setActiveConversationMessages(finalMessages);
@@ -522,7 +533,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
                   <p className="text-sm text-purple-200">
-                    {stageInfo.icon} {stageInfo.label}
+                    {stageInfo.icon} {stageInfo.label} • {aiState.replace('_', ' ').toLowerCase()}
                   </p>
                 </div>
               </div>
@@ -536,10 +547,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             )}
             
             <div className="flex items-center space-x-1">
+              {/* CRITICAL: End Chat Button - Only appears when AI is in concluding state */}
               {showEndChatButton && (
                 <button
                   onClick={handleEndChat}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300"
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300 animate-fade-in"
                   title="End conversation"
                 >
                   <X className="w-4 h-4" />
@@ -602,9 +614,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 }`}
               >
                 {message.role === 'assistant' && currentlyTyping === message.id ? (
-                  <TypewriterText text={message.content} speed={25} />
+                  <TypewriterText 
+                    text={message.content.replace('[GOAL]', '')} 
+                    speed={25} 
+                  />
                 ) : (
-                  <p className="text-sm leading-relaxed">{message.content}</p>
+                  <p className="text-sm leading-relaxed">
+                    {message.content.replace('[GOAL]', '')}
+                  </p>
                 )}
                 
                 <div className="flex items-center justify-between mt-3">

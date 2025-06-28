@@ -16,8 +16,8 @@ const openai = isOpenAIConfigured ? new OpenAI({
   maxRetries: 2,
 }) : null;
 
-// AI State Machine Types
-export type AIState = 'COACHING' | 'PROPOSING_GOAL' | 'AWAITING_GOAL_RESPONSE' | 'CONCLUDING';
+// AI State Machine Types - Refined 5-State Model
+export type AIState = 'COACHING' | 'PROPOSING_GOAL' | 'AWAITING_GOAL_RESPONSE' | 'ASKING_TO_CONCLUDE' | 'AWAITING_FINAL_RESPONSE';
 
 export interface CoachingPrompt {
   messages: Array<{
@@ -54,14 +54,14 @@ CRITICAL: When you have enough information (after 2-3 user messages), your NEXT 
 const PROPOSING_GOAL_STATE_PROMPT = `You are an AI Coach in PROPOSING_GOAL state. 
 
 CRITICAL RULES:
-1. Your response must ONLY be the goal proposition
-2. Start with exactly: "Based on what you've shared, can I set a small challenge for you?"
+1. Your response must ONLY be the goal proposition with [GOAL] tag
+2. Start with exactly: "[GOAL] Based on what you've shared, can I set a small challenge for you?"
 3. Follow with ONE specific, actionable goal
-4. Keep the entire response under 50 words
+4. Keep the entire response under 60 words
 5. Do NOT send any other text
 
 Example format:
-"Based on what you've shared, can I set a small challenge for you? [Specific actionable goal with timeframe]"
+"[GOAL] Based on what you've shared, can I set a small challenge for you? [Specific actionable goal with timeframe]"
 
 After sending this, you automatically move to AWAITING_GOAL_RESPONSE state.`;
 
@@ -69,21 +69,26 @@ const AWAITING_GOAL_RESPONSE_PROMPT = `You are an AI Coach in AWAITING_GOAL_RESP
 
 CRITICAL RULES:
 1. You are waiting for the user's response to your goal proposition
-2. If they accept (yes, okay, sure, sounds good): Ask "Is there anything else I can help you with today?"
+2. If they accept (yes, okay, sure, sounds good): Move to ASKING_TO_CONCLUDE state
 3. If they decline or want changes: Return to COACHING state
 4. Keep responses under 30 words
 5. Do NOT propose new goals in this state`;
 
-const CONCLUDING_STATE_PROMPT = `You are an AI Coach in CONCLUDING state.
+const ASKING_TO_CONCLUDE_PROMPT = `You are an AI Coach in ASKING_TO_CONCLUDE state.
 
 CRITICAL RULES:
-1. The user has indicated they're done (said no to "anything else")
-2. Send ONE final encouraging message
-3. Keep it under 40 words
-4. End with something like "Good luck!" or "You've got this!"
-5. This triggers the "End Chat" button to appear
+1. The user has accepted your goal proposition
+2. Ask EXACTLY: "Great. Is there anything else I can help you with today?"
+3. Keep response under 20 words
+4. After sending this, move to AWAITING_FINAL_RESPONSE state`;
 
-Example: "Perfect! You're all set. Take your time with your challenge. Good luck!"`;
+const AWAITING_FINAL_RESPONSE_PROMPT = `You are an AI Coach in AWAITING_FINAL_RESPONSE state.
+
+CRITICAL RULES:
+1. If user says NO (no, nothing, that's all, I'm good): Send concluding message and trigger End Chat button
+2. If user says YES or asks for more help: Return to COACHING state
+3. Concluding message should be encouraging and under 40 words
+4. Example: "Perfect! You're all set. Take your time with your challenge. Good luck!"`;
 
 const VERIFICATION_PROMPT = `Verify goal completion and provide feedback.
 
@@ -106,7 +111,7 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
 // Demo responses for each state
-const getDemoResponse = (messages: any[], context?: any): string => {
+const getDemoResponse = (messages: any[], context?: any): { response: string; aiState: AIState; shouldShowEndChat: boolean } => {
   const userMessages = messages.filter(m => m.role === 'user');
   const userCount = userMessages.length;
   
@@ -126,22 +131,53 @@ const getDemoResponse = (messages: any[], context?: any): string => {
         "What's the one thing you'd focus on?",
         "How does that make you feel?"
       ];
-      return coachingResponses[Math.min(userCount - 1, coachingResponses.length - 1)] || coachingResponses[0];
+      return {
+        response: coachingResponses[Math.min(userCount - 1, coachingResponses.length - 1)] || coachingResponses[0],
+        aiState,
+        shouldShowEndChat: false
+      };
       
     case 'PROPOSING_GOAL':
-      return "Based on what you've shared, can I set a small challenge for you? Write down 3 specific things you want to achieve this week.";
+      return {
+        response: "[GOAL] Based on what you've shared, can I set a small challenge for you? Write down 3 specific things you want to achieve this week.",
+        aiState: 'AWAITING_GOAL_RESPONSE',
+        shouldShowEndChat: false
+      };
       
     case 'AWAITING_GOAL_RESPONSE':
       if (context?.userAcceptedGoal) {
-        return "Is there anything else I can help you with today?";
+        return {
+          response: "Great. Is there anything else I can help you with today?",
+          aiState: 'AWAITING_FINAL_RESPONSE',
+          shouldShowEndChat: false
+        };
       }
-      return "What do you think about this challenge?";
+      return {
+        response: "What do you think about this challenge?",
+        aiState,
+        shouldShowEndChat: false
+      };
       
-    case 'CONCLUDING':
-      return "Perfect! You're all set. Take your time with your challenge and remember you can always come back. Good luck!";
+    case 'ASKING_TO_CONCLUDE':
+      return {
+        response: "Great. Is there anything else I can help you with today?",
+        aiState: 'AWAITING_FINAL_RESPONSE',
+        shouldShowEndChat: false
+      };
+      
+    case 'AWAITING_FINAL_RESPONSE':
+      return {
+        response: "Perfect! You're all set. Take your time with your challenge and remember you can always come back. Good luck!",
+        aiState,
+        shouldShowEndChat: true
+      };
       
     default:
-      return "What's on your mind today?";
+      return {
+        response: "What's on your mind today?",
+        aiState: 'COACHING',
+        shouldShowEndChat: false
+      };
   }
 };
 
@@ -165,42 +201,55 @@ const determineAIState = (messages: any[], context?: any): AIState => {
   
   // Check if goal was already proposed
   const goalProposed = assistantMessages.some(m => 
-    m.content.includes('can I set a small challenge for you')
+    m.content.includes('[GOAL]') || m.content.includes('can I set a small challenge for you')
   );
   
   if (goalProposed) {
-    // Check if user responded to goal
-    const lastUserMessage = userMessages[userMessages.length - 1]?.content.toLowerCase();
-    const userAccepted = lastUserMessage && (
-      lastUserMessage.includes('yes') || 
-      lastUserMessage.includes('okay') || 
-      lastUserMessage.includes('sure') ||
-      lastUserMessage.includes('sounds good')
+    // Find user response after goal proposal
+    const goalMsgIndex = assistantMessages.findIndex(m => 
+      m.content.includes('[GOAL]') || m.content.includes('can I set a small challenge for you')
     );
     
-    if (userAccepted) {
-      // Check if "anything else" was asked
-      const askedAnythingElse = assistantMessages.some(m => 
-        m.content.includes('Is there anything else I can help you with')
-      );
+    if (goalMsgIndex >= 0) {
+      const messagesAfterGoal = messages.slice(goalMsgIndex + 1);
+      const userResponseAfterGoal = messagesAfterGoal.find(m => m.role === 'user');
       
-      if (askedAnythingElse) {
-        const userSaidNo = lastUserMessage && (
-          lastUserMessage.includes('no') ||
-          lastUserMessage.includes('nothing') ||
-          lastUserMessage.includes("i'm good") ||
-          lastUserMessage.includes("that's all")
-        );
+      if (userResponseAfterGoal) {
+        const response = userResponseAfterGoal.content.toLowerCase();
+        const accepted = response.includes('yes') || response.includes('okay') || 
+                        response.includes('sure') || response.includes('sounds good');
         
-        if (userSaidNo) {
-          return 'CONCLUDING';
+        if (accepted) {
+          // Check if "anything else" was asked
+          const anythingElseMsg = messagesAfterGoal.find(m => 
+            m.role === 'assistant' && m.content.includes('Is there anything else I can help you with')
+          );
+          
+          if (anythingElseMsg) {
+            // Check user's final response
+            const finalUserResponse = messages[messages.length - 1];
+            if (finalUserResponse?.role === 'user') {
+              const finalResponse = finalUserResponse.content.toLowerCase();
+              const userSaidNo = finalResponse.includes('no') ||
+                                finalResponse.includes('nothing') ||
+                                finalResponse.includes("i'm good") ||
+                                finalResponse.includes("that's all");
+              
+              if (userSaidNo) {
+                return 'AWAITING_FINAL_RESPONSE';
+              }
+            }
+            return 'AWAITING_FINAL_RESPONSE';
+          } else {
+            return 'ASKING_TO_CONCLUDE';
+          }
         }
+        
+        return 'AWAITING_GOAL_RESPONSE';
+      } else {
+        return 'AWAITING_GOAL_RESPONSE';
       }
-      
-      return 'AWAITING_GOAL_RESPONSE';
     }
-    
-    return 'AWAITING_GOAL_RESPONSE';
   }
   
   // Transition to goal proposal after 2-3 user messages
@@ -219,12 +268,7 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
   const aiState = determineAIState(prompt.messages, prompt.context);
   
   if (!isOpenAIConfigured || !openai) {
-    const response = getDemoResponse(prompt.messages, { ...prompt.context, aiState });
-    return {
-      response,
-      aiState,
-      shouldShowEndChat: aiState === 'CONCLUDING'
-    };
+    return getDemoResponse(prompt.messages, { ...prompt.context, aiState });
   }
 
   try {
@@ -240,8 +284,11 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
       case 'AWAITING_GOAL_RESPONSE':
         systemPrompt = AWAITING_GOAL_RESPONSE_PROMPT;
         break;
-      case 'CONCLUDING':
-        systemPrompt = CONCLUDING_STATE_PROMPT;
+      case 'ASKING_TO_CONCLUDE':
+        systemPrompt = ASKING_TO_CONCLUDE_PROMPT;
+        break;
+      case 'AWAITING_FINAL_RESPONSE':
+        systemPrompt = AWAITING_FINAL_RESPONSE_PROMPT;
         break;
     }
 
@@ -266,10 +313,26 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
 
     const responseText = response.choices[0]?.message?.content || "What's on your mind?";
     
+    // Determine next state based on current state and response
+    let nextState = aiState;
+    let shouldShowEndChat = false;
+    
+    switch (aiState) {
+      case 'PROPOSING_GOAL':
+        nextState = 'AWAITING_GOAL_RESPONSE';
+        break;
+      case 'ASKING_TO_CONCLUDE':
+        nextState = 'AWAITING_FINAL_RESPONSE';
+        break;
+      case 'AWAITING_FINAL_RESPONSE':
+        shouldShowEndChat = true;
+        break;
+    }
+    
     return {
       response: responseText,
-      aiState,
-      shouldShowEndChat: aiState === 'CONCLUDING'
+      aiState: nextState,
+      shouldShowEndChat
     };
   } catch (error) {
     const errorResponse = handleError(error);
