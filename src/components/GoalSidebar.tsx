@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Target, TrendingUp, CheckCircle, Calendar, Star, Zap, Trophy, Award, Loader, AlertCircle } from 'lucide-react';
+import { X, Target, TrendingUp, CheckCircle, Calendar, Star, Zap, Trophy, Award, Loader, AlertCircle, Clock } from 'lucide-react';
 import { CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
 import { getSessionGoals, saveGoal, updateUserProfile } from '../services/database';
 import { verifyGoalCompletion } from '../services/openai';
@@ -54,7 +54,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   useEffect(() => {
     loadGoals();
     loadUserProgress();
-  }, [currentSession, userProfile]);
+  }, [currentSession, userProfile, context.lastGoalCreated]);
 
   const loadGoals = async () => {
     if (!currentSession || !user) {
@@ -99,6 +99,56 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     return ((currentIndex + 1) / stages.length) * 100;
   };
 
+  // CRITICAL: Calculate time remaining for countdown timer
+  const getTimeRemaining = (deadline: Date): { 
+    timeLeft: string; 
+    percentage: number; 
+    isOverdue: boolean;
+    totalHours: number;
+    remainingHours: number;
+  } => {
+    const now = new Date();
+    const timeLeft = deadline.getTime() - now.getTime();
+    
+    if (timeLeft <= 0) {
+      return { 
+        timeLeft: 'Overdue', 
+        percentage: 0, 
+        isOverdue: true,
+        totalHours: 0,
+        remainingHours: 0
+      };
+    }
+
+    const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+    const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+    
+    // Calculate total hours from creation to deadline
+    const createdAt = goals.find(g => g.deadline === deadline)?.createdAt || new Date();
+    const totalTime = deadline.getTime() - createdAt.getTime();
+    const totalHours = Math.floor(totalTime / (1000 * 60 * 60));
+    const percentage = totalHours > 0 ? Math.max(0, (timeLeft / totalTime) * 100) : 0;
+
+    let timeString = '';
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      const remainingHours = hours % 24;
+      timeString = `${days}d ${remainingHours}h`;
+    } else if (hours > 0) {
+      timeString = `${hours}h ${minutes}m`;
+    } else {
+      timeString = `${minutes}m`;
+    }
+
+    return { 
+      timeLeft: timeString, 
+      percentage, 
+      isOverdue: false,
+      totalHours,
+      remainingHours: hours
+    };
+  };
+
   // CRITICAL: Handle goal click to expand completion form
   const handleGoalClick = (goal: Goal) => {
     if (!goal.completed) {
@@ -128,7 +178,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
   };
 
-  // CRITICAL: Handle goal completion submission with verification
+  // CRITICAL: Handle goal completion submission with AI verification and XP calculation
   const handleSubmitGoalCompletion = async (goalId: string) => {
     const completionState = completionStates[goalId];
     if (!completionState || !completionState.reasoning.trim()) {
@@ -136,7 +186,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
 
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) return;
+    if (!goal || !goal.deadline) return;
 
     // Update state to show submitting
     setCompletionStates(prev => ({
@@ -149,8 +199,24 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }));
 
     try {
-      // CRITICAL: Send to OpenAI for verification
+      // CRITICAL: Send to AI for verification
       const result = await verifyGoalCompletion(goal.description, completionState.reasoning);
+      
+      // Calculate time-based XP bonus
+      const timeInfo = getTimeRemaining(goal.deadline);
+      let xpMultiplier = 1.0;
+      
+      if (!timeInfo.isOverdue) {
+        // Bonus for completing early
+        if (timeInfo.percentage > 75) xpMultiplier = 1.5; // 50% bonus for completing in first 25% of time
+        else if (timeInfo.percentage > 50) xpMultiplier = 1.3; // 30% bonus for completing in first 50% of time
+        else if (timeInfo.percentage > 25) xpMultiplier = 1.1; // 10% bonus for completing in first 75% of time
+      } else {
+        // Penalty for being overdue
+        xpMultiplier = 0.7; // 30% penalty for overdue completion
+      }
+
+      const finalXP = Math.round(goal.xpValue * xpMultiplier);
       
       // Update state with verification result
       setCompletionStates(prev => ({
@@ -158,7 +224,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
         [goalId]: {
           ...prev[goalId],
           isSubmitting: false,
-          feedback: result.feedback,
+          feedback: result.feedback + (xpMultiplier !== 1.0 ? 
+            ` Time bonus/penalty applied: ${Math.round((xpMultiplier - 1) * 100)}%` : ''),
           verified: result.verified,
           showFeedback: true
         }
@@ -167,7 +234,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
       // If verified, complete the goal and award XP
       if (result.verified) {
         setTimeout(async () => {
-          await completeGoal(goalId, goal.xpValue);
+          await completeGoal(goalId, finalXP, completionState.reasoning, timeInfo.remainingHours);
           setExpandedGoal(null);
           // Clear completion state
           setCompletionStates(prev => {
@@ -193,7 +260,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
   };
 
-  const completeGoal = async (goalId: string, xpReward: number) => {
+  const completeGoal = async (goalId: string, xpReward: number, reasoning: string, timeRemaining: number) => {
     if (!user || !userProfile) return;
 
     const goal = goals.find(g => g.id === goalId);
@@ -204,7 +271,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
       const updatedGoal = { 
         ...goal, 
         completed: true,
-        completedAt: new Date()
+        completedAt: new Date(),
+        completionReasoning: reasoning
       };
 
       await saveGoal(user.id, currentSession?.id || '', updatedGoal);
@@ -368,7 +436,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
               </div>
             )}
 
-            {/* Pending Goals */}
+            {/* CRITICAL: Pending Goals with Interactive Completion System */}
             {pendingGoals.length > 0 && (
               <div className="space-y-3">
                 <h4 className="font-medium text-white flex items-center space-x-2">
@@ -382,6 +450,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 <div className="space-y-2">
                   {pendingGoals.map((goal) => {
                     const completionState = completionStates[goal.id];
+                    const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline) : null;
                     
                     return (
                       <div key={goal.id} className="space-y-2">
@@ -406,11 +475,33 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                                 </div>
                               </div>
 
-                              {goal.deadline && (
-                                <p className="text-xs text-purple-300 mt-1 flex items-center space-x-1">
-                                  <Calendar className="w-3 h-3" />
-                                  <span>Due: {goal.deadline.toLocaleDateString()}</span>
-                                </p>
+                              {/* CRITICAL: Countdown Timer */}
+                              {timeInfo && (
+                                <div className="mt-2">
+                                  <div className="flex items-center justify-between text-xs mb-1">
+                                    <span className="text-purple-300 flex items-center space-x-1">
+                                      <Clock className="w-3 h-3" />
+                                      <span>Time left: {timeInfo.timeLeft}</span>
+                                    </span>
+                                    <span className={`font-medium ${timeInfo.isOverdue ? 'text-red-400' : 'text-green-400'}`}>
+                                      {timeInfo.isOverdue ? 'OVERDUE' : `${Math.round(timeInfo.percentage)}%`}
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-600 rounded-full h-1.5">
+                                    <div 
+                                      className={`h-1.5 rounded-full transition-all duration-500 ${
+                                        timeInfo.isOverdue 
+                                          ? 'bg-gradient-to-r from-red-500 to-orange-500' 
+                                          : timeInfo.percentage > 50 
+                                            ? 'bg-gradient-to-r from-green-500 to-blue-500'
+                                            : timeInfo.percentage > 25
+                                              ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                                              : 'bg-gradient-to-r from-red-500 to-pink-500'
+                                      }`}
+                                      style={{ width: `${Math.max(5, timeInfo.percentage)}%` }}
+                                    />
+                                  </div>
+                                </div>
                               )}
                               
                               <div className="flex items-center justify-between mt-2">
@@ -425,7 +516,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                           </div>
                         </div>
 
-                        {/* CRITICAL: Expanded Goal Completion Form - Entire lifecycle within sidebar */}
+                        {/* CRITICAL: Expanded Goal Completion Form with AI Verification */}
                         {expandedGoal === goal.id && (
                           <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-4 border border-green-500/20 animate-fade-in">
                             <h5 className="text-white font-medium mb-3 flex items-center space-x-2">
@@ -438,8 +529,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                                 <textarea
                                   value={completionState?.reasoning || ''}
                                   onChange={(e) => handleReasoningChange(goal.id, e.target.value)}
-                                  placeholder="Describe how you completed this challenge..."
-                                  rows={3}
+                                  placeholder="Please explain how you completed this challenge. Be specific about the actions you took and the results you achieved..."
+                                  rows={4}
                                   className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none text-sm"
                                   disabled={completionState?.isSubmitting}
                                 />
@@ -473,7 +564,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                               </>
                             ) : (
                               <>
-                                {/* CRITICAL: Display verification result */}
+                                {/* CRITICAL: Display AI verification result with XP calculation */}
                                 <div className={`rounded-lg p-4 border mb-4 ${
                                   completionState.verified 
                                     ? 'bg-green-500/10 border-green-500/20' 
@@ -501,7 +592,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                                   <div className="text-center">
                                     <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full border border-purple-500/30">
                                       <Trophy className="w-4 h-4 text-yellow-400" />
-                                      <span className="text-white font-medium">+{goal.xpValue} XP will be awarded!</span>
+                                      <span className="text-white font-medium">XP will be awarded based on completion quality and timing!</span>
                                     </div>
                                   </div>
                                 ) : (
@@ -531,7 +622,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
                   <p className="text-blue-300 text-xs">
-                    💡 Click on a challenge to mark it complete and earn XP!
+                    💡 Click on a challenge to mark it complete and earn XP! Complete faster for bonus XP!
                   </p>
                 </div>
               </div>
@@ -587,7 +678,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 </p>
                 <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
                   <p className="text-purple-300 text-xs">
-                    🤖 I'll automatically suggest challenges based on our conversation
+                    🤖 I'll automatically suggest challenges after 3 coaching questions
                   </p>
                 </div>
               </div>
