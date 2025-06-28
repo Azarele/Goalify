@@ -41,7 +41,7 @@ if (!hasValidConfig) {
   console.error('5. Restart your development server');
 }
 
-// Create Supabase client with proper configuration
+// Create Supabase client with proper configuration and error handling
 export const supabase = hasValidConfig 
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -50,17 +50,92 @@ export const supabase = hasValidConfig
         detectSessionInUrl: true,
         flowType: 'pkce',
         storageKey: 'sb-goalify-auth-token'
+      },
+      global: {
+        fetch: async (url, options = {}) => {
+          try {
+            const response = await fetch(url, {
+              ...options,
+              headers: {
+                ...options.headers,
+                'Access-Control-Allow-Origin': '*',
+              }
+            });
+            return response;
+          } catch (error) {
+            console.warn('Network request failed:', error);
+            // Return a mock response for development
+            return new Response(JSON.stringify({ error: 'Network unavailable' }), {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        }
       }
     })
   : null;
 
 export const isSupabaseConfigured = hasValidConfig;
 
+// Connection test function
+export const testSupabaseConnection = async (): Promise<boolean> => {
+  if (!supabase) return false;
+  
+  try {
+    const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
+    return !error;
+  } catch (error) {
+    console.warn('Supabase connection test failed:', error);
+    return false;
+  }
+};
+
+// Wrapper function for database operations with error handling
+export const safeSupabaseOperation = async <T>(
+  operation: () => Promise<{ data: T | null; error: any }>
+): Promise<{ data: T | null; error: any; isOffline?: boolean }> => {
+  if (!supabase) {
+    return { 
+      data: null, 
+      error: { message: 'Supabase not configured' },
+      isOffline: true 
+    };
+  }
+
+  try {
+    const result = await operation();
+    return result;
+  } catch (error: any) {
+    console.warn('Database operation failed:', error);
+    
+    // Check if it's a network error
+    if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
+      return { 
+        data: null, 
+        error: { message: 'Network connection unavailable' },
+        isOffline: true 
+      };
+    }
+    
+    return { data: null, error };
+  }
+};
+
 // Log configuration status with more detailed feedback
 if (hasValidConfig) {
   console.log('✅ Supabase configured successfully');
   console.log('📡 Project URL:', supabaseUrl);
   console.log('🔑 Anon key configured (length:', supabaseAnonKey.length, 'chars)');
+  
+  // Test connection in background
+  testSupabaseConnection().then(connected => {
+    if (connected) {
+      console.log('🌐 Supabase connection test: SUCCESS');
+    } else {
+      console.warn('⚠️ Supabase connection test: FAILED - Running in offline mode');
+    }
+  });
 } else {
   console.log('⚠️ Supabase not configured - running in demo mode');
   console.log('💡 Please check your environment variables and restart the server');
@@ -225,6 +300,58 @@ export type Database = {
           xp_reward?: number;
           unlocked_at?: string;
           created_at?: string;
+        };
+      };
+      conversations: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          created_at: string;
+          updated_at: string;
+          completed: boolean;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          created_at?: string;
+          updated_at?: string;
+          completed?: boolean;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          created_at?: string;
+          updated_at?: string;
+          completed?: boolean;
+        };
+      };
+      messages: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          role: 'user' | 'assistant';
+          content: string;
+          created_at: string;
+          is_voice: boolean;
+        };
+        Insert: {
+          id?: string;
+          conversation_id: string;
+          role: 'user' | 'assistant';
+          content: string;
+          created_at?: string;
+          is_voice?: boolean;
+        };
+        Update: {
+          id?: string;
+          conversation_id?: string;
+          role?: 'user' | 'assistant';
+          content?: string;
+          created_at?: string;
+          is_voice?: boolean;
         };
       };
     };
