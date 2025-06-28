@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { MessageCircle, Calendar, BarChart3, Settings as SettingsIcon, LogOut, Flame } from 'lucide-react';
+import { MessageCircle, Calendar, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
 import { SessionHistory } from './components/SessionHistory';
 import { ProgressDashboard } from './components/ProgressDashboard';
+import { UserAnalysis } from './components/UserAnalysis';
 import { Settings } from './components/Settings';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthCallback } from './components/AuthCallback';
@@ -12,7 +13,7 @@ import { useAuth } from './hooks/useAuth';
 import { getUserProfile, createUserProfile } from './services/database';
 import { UserProfile } from './types/coaching';
 
-type AppView = 'coaching' | 'history' | 'progress' | 'settings';
+type AppView = 'coaching' | 'history' | 'progress' | 'analysis' | 'settings';
 
 function MainApp() {
   const { user, loading, signOut } = useAuth();
@@ -115,6 +116,7 @@ function MainApp() {
               { id: 'coaching', label: 'Coaching', icon: MessageCircle },
               { id: 'history', label: 'History', icon: Calendar },
               { id: 'progress', label: 'Progress', icon: BarChart3 },
+              { id: 'analysis', label: 'Analysis', icon: Brain },
               { id: 'settings', label: 'Settings', icon: SettingsIcon }
             ].map((item) => {
               const Icon = item.icon;
@@ -168,6 +170,12 @@ function MainApp() {
         return (
           <div className="max-w-6xl mx-auto px-4 py-8">
             <ProgressDashboard userProfile={userProfile} />
+          </div>
+        );
+      case 'analysis':
+        return (
+          <div className="max-w-6xl mx-auto px-4 py-8">
+            <UserAnalysis userProfile={userProfile} />
           </div>
         );
       case 'settings':

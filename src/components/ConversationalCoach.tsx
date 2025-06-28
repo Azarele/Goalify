@@ -243,35 +243,17 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           console.error('Error saving goal:', error);
         }
         
+        // SINGLE ACTION PRINCIPLE: Only return the goal proposition message
         const goalMessage: Message = {
           id: uuidv4(),
           role: 'assistant',
-          content: `Based on what you've shared, can I set a small challenge for you? Here's what I'm thinking: "${generatedGoal.description}" - does this feel achievable and relevant to what we've been discussing?`,
+          content: `Based on what you've shared, can I set a small challenge for you? ${generatedGoal.description}`,
           timestamp: new Date()
         };
         
         return goalMessage;
       }
     }
-    return null;
-  };
-
-  const generateFollowUpMessage = (messages: Message[]): Message | null => {
-    // Only generate follow-up if goal was just set
-    if (!goalSetInSession) return null;
-    
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'assistant' && 
-        lastMessage.content.toLowerCase().includes('can i set a small challenge for you')) {
-      
-      return {
-        id: uuidv4(),
-        role: 'assistant',
-        content: "Is there anything else I can help you with today?",
-        timestamp: new Date()
-      };
-    }
-    
     return null;
   };
 
@@ -308,6 +290,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                      userResponse.includes("that's all") ||
                      userResponse.includes('nothing else');
 
+      // If goal was set and user says they're done, conclude conversation
       if (goalSetInSession && isDone) {
         const conclusionMessage: Message = {
           id: uuidv4(),
@@ -336,6 +319,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         return;
       }
 
+      // Check if user accepted the goal challenge
+      const userAcceptedGoal = goalSetInSession && 
+        (userResponse.includes('yes') || userResponse.includes('okay') || 
+         userResponse.includes('sure') || userResponse.includes('sounds good'));
+
+      // Generate AI response
       const response = await generateCoachingResponse({
         messages: newMessages.map(m => ({
           role: m.role,
@@ -358,16 +347,23 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       let finalMessages = [...newMessages, assistantMessage];
 
-      // Try to generate a goal if conditions are met
-      const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
-      if (goalMessage) {
-        finalMessages = [...finalMessages, goalMessage];
-        
-        // Add the follow-up question after goal setting
-        const followUpMessage = generateFollowUpMessage(finalMessages);
-        if (followUpMessage) {
-          finalMessages = [...finalMessages, followUpMessage];
+      // Try to generate a goal if conditions are met and no goal set yet
+      if (!goalSetInSession) {
+        const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
+        if (goalMessage) {
+          finalMessages = [...finalMessages, goalMessage];
         }
+      }
+
+      // If user just accepted a goal, ask the follow-up question
+      if (userAcceptedGoal && goalSetInSession) {
+        const followUpMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: "Is there anything else I can help you with today?",
+          timestamp: new Date()
+        };
+        finalMessages = [...finalMessages, followUpMessage];
       }
 
       setActiveConversationMessages(finalMessages);
@@ -375,10 +371,17 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       // Save all new messages
       await saveMessage(currentConversationId, assistantMessage);
-      if (goalMessage) {
-        await saveMessage(currentConversationId, goalMessage);
-        const followUpMessage = generateFollowUpMessage(finalMessages);
-        if (followUpMessage) {
+      
+      if (!goalSetInSession) {
+        const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
+        if (goalMessage) {
+          await saveMessage(currentConversationId, goalMessage);
+        }
+      }
+
+      if (userAcceptedGoal && goalSetInSession) {
+        const followUpMessage = finalMessages[finalMessages.length - 1];
+        if (followUpMessage.content.includes("Is there anything else")) {
           await saveMessage(currentConversationId, followUpMessage);
         }
       }
