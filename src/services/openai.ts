@@ -16,8 +16,15 @@ const openai = isOpenAIConfigured ? new OpenAI({
   maxRetries: 2,
 }) : null;
 
-// Enhanced AI State Machine Types - Goal-Focused Model
-export type AIState = 'COACHING' | 'PROPOSING_GOAL' | 'AWAITING_GOAL_RESPONSE' | 'ASKING_TO_CONCLUDE' | 'AWAITING_FINAL_RESPONSE';
+// CRITICAL: Structured Coaching Cycle State Machine
+export type AIState = 
+  | 'COACHING_Q1'     // First coaching question
+  | 'COACHING_Q2'     // Second coaching question  
+  | 'COACHING_Q3'     // Third coaching question
+  | 'PROPOSING_GOAL'  // Must propose goal after 3 questions
+  | 'AWAITING_GOAL_RESPONSE' // Waiting for Accept/Decline
+  | 'ASKING_TO_CONCLUDE'     // After multiple goals
+  | 'AWAITING_FINAL_RESPONSE'; // Final state
 
 export interface CoachingPrompt {
   messages: Array<{
@@ -31,12 +38,14 @@ export interface CoachingPrompt {
     aiState?: AIState;
     goalProposed?: boolean;
     userAcceptedGoal?: boolean;
+    userDeclinedGoal?: boolean;
     messageCount?: number;
     goalCount?: number;
+    questionCount?: number; // CRITICAL: Track questions asked
   };
 }
 
-// CRITICAL: Core AI Persona & Coaching Values System Prompt
+// CRITICAL: Core AI Persona with Structured Coaching Rules
 const GOALIFY_CORE_PROMPT = `You are Goalify, an AI Coach. Your primary role is to be a supportive, non-directive thinking partner. You do not give advice, share opinions, or solve problems for the user. Your mission is to help the user gain clarity and find their own solutions by asking powerful, open-ended questions.
 
 YOUR CORE COACHING PRINCIPLES:
@@ -51,29 +60,24 @@ YOUR CORE COACHING PRINCIPLES:
 
 4. LISTEN FOR POTENTIAL: Your goal is to help the user identify opportunities for action and growth within their own words.
 
-CRITICAL COACHING BEHAVIOR:
-- Never give advice, suggestions, or share your expertise
-- Don't say "you should" or "I recommend" or "try this"
-- Ask questions like: "What do you think about that?" "How does that feel?" "What would happen if...?"
-- Reflect: "I hear you saying..." "It sounds like..." "What I'm noticing is..."
+CRITICAL STRUCTURED COACHING RULES:
+- ONE QUESTION PER RESPONSE: Never ask multiple questions in a single message
+- THREE-QUESTION RULE: After exactly 3 coaching questions, you MUST propose a goal
 - Keep responses under 40 words
 - Focus on their thinking, not your knowledge
 
 Remember: You're a thinking partner. They have the answers - you help them find them.`;
 
-const PROPOSING_GOAL_PROMPT = `You are Goalify in PROPOSING_GOAL state. Your mission is to help the user translate their insights into actionable goals.
+const PROPOSING_GOAL_PROMPT = `You are Goalify in PROPOSING_GOAL state. You have asked exactly 3 coaching questions and MUST now propose a goal.
 
-NATURAL GOAL IDENTIFICATION: Do not force goals. Listen for natural moments in the conversation where the user expresses a desire for change, a need to solve a problem, or a clear next step. A goal should feel like a logical conclusion to a part of the conversation.
+CRITICAL GOAL PROPOSITION RULES:
+1. Start your message with the [GOAL] tag
+2. Propose ONE specific, actionable goal based on the conversation
+3. Ask for permission: "Can I suggest a challenge based on our conversation?"
+4. Wait for explicit Accept/Decline response
 
-THE GOAL PROPOSITION FLOW:
-1. When you identify a suitable opportunity, propose the challenge by asking for permission. 
-   Example: "It sounds like you have a clear idea there. Can I suggest a challenge based on that?"
-
-2. If the user agrees, formulate the goal using the [GOAL] tag.
-
-FORMATTING FOR UI INTEGRATION: To ensure the goal appears correctly in the "Goals" tab, your message containing the goal must start with the [GOAL] tag.
-
-Correct Format: [GOAL] Spend 20 minutes tomorrow morning outlining the first three steps for that project.
+FORMATTING FOR UI INTEGRATION: 
+[GOAL] Can I suggest a challenge based on our conversation? [Specific actionable goal description]
 
 GOAL CREATION RULES:
 - Make goals SPECIFIC and ACTIONABLE
@@ -82,27 +86,16 @@ GOAL CREATION RULES:
 - Make them measurable and achievable
 - Break down big problems into smaller actions
 
-GOAL TYPES TO CREATE:
-- Research goals: "Research 3 options for X by Friday"
-- Communication goals: "Have a 10-minute conversation with Y about Z"
-- Planning goals: "Write down 5 ideas for improving X"
-- Decision goals: "Decide between A and B by Wednesday"
-- Action goals: "Complete the first step of X tomorrow"
-- Learning goals: "Watch one tutorial about Y this week"
-- Organization goals: "Organize your X folder by Thursday"
-
-After Setting the Goal: Once the goal is proposed, wait for the user's response before continuing the conversation.`;
+After proposing the goal, wait for the user's Accept/Decline response.`;
 
 const AWAITING_GOAL_RESPONSE_PROMPT = `You are Goalify in AWAITING_GOAL_RESPONSE state.
 
 CRITICAL RULES:
-1. Wait for user's response to your goal proposition
-2. If they accept (yes, okay, sure, sounds good): Move to COACHING state to find MORE goals
-3. If they decline: Modify the goal or return to COACHING state
+1. Wait for user's explicit Accept or Decline response
+2. If they Accept: Acknowledge and return to COACHING_Q1 for next cycle
+3. If they Decline: Say "Understood. Is there another area you'd like to focus on?" and return to COACHING_Q1
 4. Keep responses under 30 words
-5. ALWAYS look for opportunities to create ADDITIONAL goals
-
-IMPORTANT: After a goal is accepted, immediately return to COACHING to find the NEXT goal opportunity!`;
+5. Do NOT ask coaching questions until goal response is received`;
 
 const ASKING_TO_CONCLUDE_PROMPT = `You are Goalify in ASKING_TO_CONCLUDE state.
 
@@ -115,8 +108,8 @@ CRITICAL RULES:
 const AWAITING_FINAL_RESPONSE_PROMPT = `You are Goalify in AWAITING_FINAL_RESPONSE state.
 
 CRITICAL RULES:
-1. If user says NO (no, nothing, that's all, I'm good): Send concluding message and trigger End Chat button
-2. If user says YES or mentions anything new: Return to COACHING state to create MORE goals
+1. If user says NO (no, nothing, that's all, I'm good): Send concluding message
+2. If user says YES or mentions anything new: Return to COACHING_Q1 state
 3. Concluding message should be encouraging and under 40 words
 4. Example: "Excellent! You have clear next steps to work with. Take your time with each goal and remember you can always come back for more coaching. Good luck!"`;
 
@@ -151,74 +144,76 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
-// Enhanced demo responses with goal-focused coaching
+// CRITICAL: Structured demo responses following the three-question rule
 const getDemoResponse = (messages: any[], context?: any): { response: string; aiState: AIState; shouldShowEndChat: boolean } => {
   const userMessages = messages.filter(m => m.role === 'user');
   const userCount = userMessages.length;
   const goalCount = context?.goalCount || 0;
+  const questionCount = context?.questionCount || 0;
   
-  // Determine AI state based on context and goal creation strategy
-  let aiState: AIState = context?.aiState || 'COACHING';
+  // Determine AI state based on structured coaching cycle
+  let aiState: AIState = context?.aiState || 'COACHING_Q1';
   
-  // More aggressive goal creation - propose goals frequently
-  if (aiState === 'COACHING' && userCount >= 1) {
-    // Look for goal opportunities in user's last message
-    const lastMessage = userMessages[userMessages.length - 1]?.content.toLowerCase() || '';
-    const hasGoalTrigger = lastMessage.includes('need to') || 
-                          lastMessage.includes('should') || 
-                          lastMessage.includes('want to') ||
-                          lastMessage.includes('thinking about') ||
-                          lastMessage.includes('problem') ||
-                          lastMessage.includes('challenge') ||
-                          lastMessage.includes('improve') ||
-                          lastMessage.includes('better') ||
-                          lastMessage.includes('change') ||
-                          lastMessage.includes('stuck') ||
-                          lastMessage.includes('help');
-    
-    // Propose goals more frequently when triggers are present
-    if (hasGoalTrigger || (userCount >= 2 && goalCount < 3)) {
-      aiState = 'PROPOSING_GOAL';
-    }
+  // CRITICAL: Implement three-question rule
+  if (aiState.startsWith('COACHING_') && questionCount >= 3) {
+    aiState = 'PROPOSING_GOAL';
   }
   
   // Only conclude after creating multiple goals
-  if (aiState === 'COACHING' && goalCount >= 3 && userCount >= 6) {
+  if (aiState === 'COACHING_Q1' && goalCount >= 3 && userCount >= 10) {
     aiState = 'ASKING_TO_CONCLUDE';
   }
   
   switch (aiState) {
-    case 'COACHING':
-      const coachingResponses = [
+    case 'COACHING_Q1':
+      const q1Responses = [
         "What's the biggest challenge you're facing right now?",
-        "What's one thing you'd like to improve this week?",
         "What's been on your mind lately that you'd like to make progress on?",
+        "What's one thing you'd like to improve this week?",
         "What would make the biggest difference in your day-to-day life?",
-        "What's something you've been putting off that you know you should do?",
-        "What's one area where you feel stuck and need to move forward?",
-        "What decision have you been avoiding that you need to make?",
-        "What's something you want to learn or get better at?",
-        "What would success look like for you in this situation?",
-        "What's holding you back from taking action on this?"
+        "What's something you've been putting off that you know you should do?"
       ];
       return {
-        response: coachingResponses[Math.min(userCount - 1, coachingResponses.length - 1)] || coachingResponses[0],
-        aiState,
+        response: q1Responses[Math.min(userCount - 1, q1Responses.length - 1)] || q1Responses[0],
+        aiState: 'COACHING_Q2',
+        shouldShowEndChat: false
+      };
+      
+    case 'COACHING_Q2':
+      const q2Responses = [
+        "What's holding you back from taking action on this?",
+        "How does this situation make you feel?",
+        "What would success look like for you here?",
+        "What's one small step you could take toward this?",
+        "What resources do you already have to help with this?"
+      ];
+      return {
+        response: q2Responses[Math.min(userCount - 2, q2Responses.length - 1)] || q2Responses[0],
+        aiState: 'COACHING_Q3',
+        shouldShowEndChat: false
+      };
+      
+    case 'COACHING_Q3':
+      const q3Responses = [
+        "What would happen if you took action on this tomorrow?",
+        "Who could support you with this challenge?",
+        "What's the first thing you'd need to do to move forward?",
+        "What would change if you solved this problem?",
+        "What's stopping you from starting today?"
+      ];
+      return {
+        response: q3Responses[Math.min(userCount - 3, q3Responses.length - 1)] || q3Responses[0],
+        aiState: 'PROPOSING_GOAL',
         shouldShowEndChat: false
       };
       
     case 'PROPOSING_GOAL':
       const goalExamples = [
-        "[GOAL] Write down 3 specific things you want to improve about your current situation by tomorrow",
-        "[GOAL] Research 2 potential solutions for your main challenge this week",
-        "[GOAL] Have a 10-minute conversation with someone who could help you with this by Friday",
-        "[GOAL] Spend 20 minutes today organizing one area that's been bothering you",
-        "[GOAL] Make a list of 5 small steps you could take toward your goal this week",
-        "[GOAL] Dedicate 30 minutes tomorrow to planning your next move on this",
-        "[GOAL] Identify 3 resources or tools that could help you with this challenge",
-        "[GOAL] Schedule 15 minutes this week to reflect on what you really want here",
-        "[GOAL] Complete one small task related to this goal by end of day tomorrow",
-        "[GOAL] Reach out to one person who might have advice about this situation"
+        "[GOAL] Can I suggest a challenge based on our conversation? Write down 3 specific things you want to improve about your current situation by tomorrow",
+        "[GOAL] Can I suggest a challenge based on our conversation? Research 2 potential solutions for your main challenge this week",
+        "[GOAL] Can I suggest a challenge based on our conversation? Have a 10-minute conversation with someone who could help you with this by Friday",
+        "[GOAL] Can I suggest a challenge based on our conversation? Spend 20 minutes today organizing one area that's been bothering you",
+        "[GOAL] Can I suggest a challenge based on our conversation? Make a list of 5 small steps you could take toward your goal this week"
       ];
       return {
         response: goalExamples[Math.min(goalCount, goalExamples.length - 1)] || goalExamples[0],
@@ -229,13 +224,19 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
     case 'AWAITING_GOAL_RESPONSE':
       if (context?.userAcceptedGoal) {
         return {
-          response: "Perfect! What else would you like to work on or improve?",
-          aiState: 'COACHING',
+          response: "Perfect! What else would you like to work on?",
+          aiState: 'COACHING_Q1',
+          shouldShowEndChat: false
+        };
+      } else if (context?.userDeclinedGoal) {
+        return {
+          response: "Understood. Is there another area you'd like to focus on?",
+          aiState: 'COACHING_Q1',
           shouldShowEndChat: false
         };
       }
       return {
-        response: "What do you think about this challenge? Does it feel achievable?",
+        response: "I'm waiting for your response to the goal I proposed. Would you like to accept or decline this challenge?",
         aiState,
         shouldShowEndChat: false
       };
@@ -257,7 +258,7 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
     default:
       return {
         response: "What's on your mind today?",
-        aiState: 'COACHING',
+        aiState: 'COACHING_Q1',
         shouldShowEndChat: false
       };
   }
@@ -274,7 +275,7 @@ const handleError = (error: any): string => {
   return "Connection trouble. Please try again.";
 };
 
-// Enhanced AI state determination with goal-focused logic
+// CRITICAL: Enhanced AI state determination with structured coaching cycle
 const determineAIState = (messages: any[], context?: any): AIState => {
   if (context?.aiState) return context.aiState;
   
@@ -282,16 +283,19 @@ const determineAIState = (messages: any[], context?: any): AIState => {
   const assistantMessages = messages.filter(m => m.role === 'assistant');
   const goalCount = context?.goalCount || 0;
   
+  // Count coaching questions asked (not including goal propositions)
+  const coachingQuestions = assistantMessages.filter(m => 
+    !m.content.includes('[GOAL]') && 
+    !m.content.includes('Is there anything else I can help you with') &&
+    m.content.includes('?')
+  ).length;
+  
   // Check if goal was already proposed
-  const goalProposed = assistantMessages.some(m => 
-    m.content.includes('[GOAL]') || m.content.includes('Can I suggest a challenge')
-  );
+  const goalProposed = assistantMessages.some(m => m.content.includes('[GOAL]'));
   
   if (goalProposed) {
     // Find user response after goal proposal
-    const goalMsgIndex = assistantMessages.findIndex(m => 
-      m.content.includes('[GOAL]') || m.content.includes('Can I suggest a challenge')
-    );
+    const goalMsgIndex = assistantMessages.findIndex(m => m.content.includes('[GOAL]'));
     
     if (goalMsgIndex >= 0) {
       const messagesAfterGoal = messages.slice(goalMsgIndex + 1);
@@ -299,38 +303,18 @@ const determineAIState = (messages: any[], context?: any): AIState => {
       
       if (userResponseAfterGoal) {
         const response = userResponseAfterGoal.content.toLowerCase();
-        const accepted = response.includes('yes') || response.includes('okay') || 
-                        response.includes('sure') || response.includes('sounds good') ||
-                        response.includes('that works') || response.includes('perfect');
+        const accepted = response.includes('accept') || response.includes('yes') || 
+                        response.includes('okay') || response.includes('sure') ||
+                        response.includes('sounds good') || response.includes('that works');
+        const declined = response.includes('decline') || response.includes('no') ||
+                        response.includes('not interested') || response.includes('skip');
         
-        if (accepted) {
-          // After accepting a goal, return to COACHING to find more goals
-          // Only conclude after multiple goals (3+)
+        if (accepted || declined) {
+          // After goal response, return to coaching cycle
           if (goalCount >= 3) {
-            const anythingElseMsg = messagesAfterGoal.find(m => 
-              m.role === 'assistant' && m.content.includes('Is there anything else I can help you with')
-            );
-            
-            if (anythingElseMsg) {
-              const finalUserResponse = messages[messages.length - 1];
-              if (finalUserResponse?.role === 'user') {
-                const finalResponse = finalUserResponse.content.toLowerCase();
-                const userSaidNo = finalResponse.includes('no') ||
-                                  finalResponse.includes('nothing') ||
-                                  finalResponse.includes("i'm good") ||
-                                  finalResponse.includes("that's all");
-                
-                if (userSaidNo) {
-                  return 'AWAITING_FINAL_RESPONSE';
-                }
-              }
-              return 'AWAITING_FINAL_RESPONSE';
-            } else {
-              return 'ASKING_TO_CONCLUDE';
-            }
+            return 'ASKING_TO_CONCLUDE';
           } else {
-            // Return to coaching to create more goals
-            return 'COACHING';
+            return 'COACHING_Q1'; // Start new coaching cycle
           }
         }
         
@@ -341,29 +325,17 @@ const determineAIState = (messages: any[], context?: any): AIState => {
     }
   }
   
-  // Enhanced goal creation triggers - listen for opportunities
-  const lastUserMessage = userMessages[userMessages.length - 1]?.content.toLowerCase() || '';
-  const hasGoalTrigger = lastUserMessage.includes('need to') || 
-                        lastUserMessage.includes('should') || 
-                        lastUserMessage.includes('want to') ||
-                        lastUserMessage.includes('thinking about') ||
-                        lastUserMessage.includes('problem') ||
-                        lastUserMessage.includes('challenge') ||
-                        lastUserMessage.includes('improve') ||
-                        lastUserMessage.includes('better') ||
-                        lastUserMessage.includes('change') ||
-                        lastUserMessage.includes('help') ||
-                        lastUserMessage.includes('stuck') ||
-                        lastUserMessage.includes('difficult') ||
-                        lastUserMessage.includes('goal') ||
-                        lastUserMessage.includes('achieve');
-  
-  // Propose goals more frequently when triggers are present
-  if ((userMessages.length >= 2 && hasGoalTrigger) || (userMessages.length >= 3 && goalCount < 3)) {
+  // CRITICAL: Implement three-question rule
+  if (coachingQuestions >= 3) {
     return 'PROPOSING_GOAL';
   }
   
-  return 'COACHING';
+  // Determine coaching question state
+  if (coachingQuestions === 0) return 'COACHING_Q1';
+  if (coachingQuestions === 1) return 'COACHING_Q2';
+  if (coachingQuestions === 2) return 'COACHING_Q3';
+  
+  return 'COACHING_Q1';
 };
 
 export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<{
@@ -381,7 +353,9 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     let systemPrompt = '';
     
     switch (aiState) {
-      case 'COACHING':
+      case 'COACHING_Q1':
+      case 'COACHING_Q2':
+      case 'COACHING_Q3':
         systemPrompt = GOALIFY_CORE_PROMPT;
         break;
       case 'PROPOSING_GOAL':
@@ -404,9 +378,9 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     ];
 
     if (prompt.context) {
-      const contextMessage = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}Current AI State: ${aiState}. Goals Created: ${prompt.context.goalCount || 0}. ${
+      const contextMessage = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}Current AI State: ${aiState}. Goals Created: ${prompt.context.goalCount || 0}. Question Count: ${prompt.context.questionCount || 0}. ${
         prompt.context.userAcceptedGoal ? 'User accepted the goal. ' : ''
-      }`;
+      }${prompt.context.userDeclinedGoal ? 'User declined the goal. ' : ''}`;
       messages.splice(1, 0, { role: 'system', content: contextMessage });
     }
 
@@ -414,7 +388,7 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
       model: 'gpt-4',
       messages,
       max_tokens: aiState === 'PROPOSING_GOAL' ? 100 : 150,
-      temperature: 0.8, // Higher creativity for more varied responses
+      temperature: 0.8,
     });
 
     const responseText = response.choices[0]?.message?.content || "What's on your mind?";
@@ -424,13 +398,21 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     let shouldShowEndChat = false;
     
     switch (aiState) {
+      case 'COACHING_Q1':
+        nextState = 'COACHING_Q2';
+        break;
+      case 'COACHING_Q2':
+        nextState = 'COACHING_Q3';
+        break;
+      case 'COACHING_Q3':
+        nextState = 'PROPOSING_GOAL';
+        break;
       case 'PROPOSING_GOAL':
         nextState = 'AWAITING_GOAL_RESPONSE';
         break;
       case 'AWAITING_GOAL_RESPONSE':
-        // If user accepted, return to COACHING to find more goals
-        if (prompt.context?.userAcceptedGoal) {
-          nextState = 'COACHING';
+        if (prompt.context?.userAcceptedGoal || prompt.context?.userDeclinedGoal) {
+          nextState = 'COACHING_Q1'; // Start new cycle
         }
         break;
       case 'ASKING_TO_CONCLUDE':
