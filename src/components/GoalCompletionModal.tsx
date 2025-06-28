@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { CheckCircle, X, Loader, Star, Trophy } from 'lucide-react';
-import { Goal } from '../types/coaching';
+
+interface Goal {
+  id: string;
+  description: string;
+  xpValue: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  motivation: number;
+  completed: boolean;
+  completedAt?: Date;
+  completionReasoning?: string;
+  deadline?: Date;
+  createdAt: Date;
+}
 
 interface GoalCompletionModalProps {
   goal: Goal;
@@ -36,12 +48,10 @@ export const GoalCompletionModal: React.FC<GoalCompletionModalProps> = ({
       const verified = await onVerify(goal.id, reasoning);
       
       if (verified) {
-        // Success! Award XP and close modal
         onComplete(goal.id, goal.xpValue);
         onClose();
         setReasoning('');
       } else {
-        // Verification failed
         setVerificationFailed(true);
         setErrorMessage('Please provide more detail about how you completed this goal.');
       }

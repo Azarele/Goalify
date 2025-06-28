@@ -112,7 +112,6 @@ function MainApp() {
             </div>
           </div>
 
-          {/* Daily Streak Display */}
           {userProfile && (
             <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
               <Flame className="w-4 h-4 text-orange-400" />

@@ -1,9 +1,37 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, MessageCircle, Target, TrendingUp, Clock } from 'lucide-react';
-import { getSessions } from '../utils/storage';
+import { getUserSessions } from '../services/database';
+import { UserProfile } from '../types/coaching';
+import { useAuth } from '../hooks/useAuth';
 
-export const SessionHistory: React.FC = () => {
-  const sessions = getSessions();
+interface SessionHistoryProps {
+  userProfile: UserProfile | null;
+}
+
+export const SessionHistory: React.FC<SessionHistoryProps> = ({ userProfile }) => {
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadSessions();
+  }, [user]);
+
+  const loadSessions = async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const sessionsData = await getUserSessions(user.id);
+      setSessions(sessionsData);
+    } catch (error) {
+      console.error('Error loading sessions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const getSessionsByPeriod = () => {
     const now = new Date();
@@ -35,7 +63,7 @@ export const SessionHistory: React.FC = () => {
     return {
       totalMessages,
       userMessages,
-      duration: Math.round(totalMessages * 1.5) // Estimate duration
+      duration: Math.round(totalMessages * 1.5)
     };
   };
 
@@ -110,8 +138,19 @@ export const SessionHistory: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-purple-300">Loading your sessions...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
       <div className="text-center mb-8">
         <div className="relative mx-auto w-16 h-16 mb-4">
           <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl">
@@ -123,7 +162,6 @@ export const SessionHistory: React.FC = () => {
         <p className="text-purple-300">Review your coaching journey and insights</p>
       </div>
 
-      {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl p-6 border border-purple-500/20 backdrop-blur-sm">
           <div className="flex items-center space-x-3">
@@ -166,7 +204,6 @@ export const SessionHistory: React.FC = () => {
         </div>
       </div>
 
-      {/* Session Groups */}
       {sessions.length > 0 ? (
         <>
           <SessionGroup 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar } from 'lucide-react';
 import { Message, CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
-import { generateCoachingResponse, generateGoalFromConversation } from '../services/openai';
-import { generateSpeech, playAudio } from '../services/elevenlabs';
+import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
+import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { saveSession, saveGoal, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
@@ -56,7 +56,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   useEffect(() => {
     if (userProfile) {
-      setVoiceEnabled(userProfile.preferences.voiceEnabled);
+      setVoiceEnabled(userProfile.preferences.voiceEnabled && isElevenLabsConfigured);
     }
   }, [userProfile]);
 
@@ -94,8 +94,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     if (!user) return;
 
     const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?`
-      : "Hi! I'm your AI Coach. You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?";
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?`;
     
     const assistantMessage: Message = {
       id: Date.now().toString(),
@@ -120,14 +120,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     
     setTimeout(() => {
       setCurrentlyTyping(null);
-      if (voiceEnabled) {
+      if (voiceEnabled && isElevenLabsConfigured) {
         playCoachResponse(greeting);
       }
     }, greeting.length * 30);
   };
 
   const playCoachResponse = async (text: string) => {
-    if (!userProfile?.preferences.voiceEnabled) return;
+    if (!userProfile?.preferences.voiceEnabled || !isElevenLabsConfigured) return;
     
     try {
       setIsPlayingAudio(true);
@@ -266,7 +266,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       setTimeout(async () => {
         setCurrentlyTyping(null);
-        if (voiceEnabled) {
+        if (voiceEnabled && isElevenLabsConfigured) {
           await playCoachResponse(response);
         }
       }, response.length * 25);
@@ -337,7 +337,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
-      {/* Left Sidebar - Session History */}
       <SessionSidebar 
         isOpen={leftSidebarOpen}
         onClose={() => setLeftSidebarOpen(false)}
@@ -345,7 +344,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userProfile={userProfile}
       />
 
-      {/* Right Sidebar - Goal Tracking */}
       <GoalSidebar 
         isOpen={rightSidebarOpen}
         onClose={() => setRightSidebarOpen(false)}
@@ -354,9 +352,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userProfile={userProfile}
       />
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col max-w-4xl mx-auto relative">
-        {/* Header */}
         <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-b border-purple-500/20 p-4 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 animate-pulse"></div>
           
@@ -388,17 +384,19 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             </div>
             
             <div className="flex items-center space-x-2">
-              <button
-                onClick={toggleVoice}
-                className={`p-3 rounded-full transition-all duration-300 transform hover:scale-105 ${
-                  voiceEnabled 
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25' 
-                    : 'bg-slate-700 text-purple-300 hover:bg-slate-600'
-                }`}
-                title={voiceEnabled ? 'Voice enabled' : 'Voice disabled'}
-              >
-                {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              </button>
+              {isElevenLabsConfigured && (
+                <button
+                  onClick={toggleVoice}
+                  className={`p-3 rounded-full transition-all duration-300 transform hover:scale-105 ${
+                    voiceEnabled 
+                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25' 
+                      : 'bg-slate-700 text-purple-300 hover:bg-slate-600'
+                  }`}
+                  title={voiceEnabled ? 'Voice enabled' : 'Voice disabled'}
+                >
+                  {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </button>
+              )}
               
               <button
                 onClick={() => setRightSidebarOpen(true)}
@@ -412,9 +410,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               )}
             </div>
           </div>
+
+          {!isOpenAIConfigured && (
+            <div className="mt-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2">
+              <p className="text-yellow-300 text-xs text-center">
+                Demo mode: Limited AI features. Configure OpenAI API key for full functionality.
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Messages */}
         <div 
           ref={chatContainerRef}
           className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
@@ -471,7 +476,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-t border-purple-500/20 p-6">
           <form onSubmit={handleSubmit} className="flex items-center space-x-4">
             <div className="flex-1 relative">
@@ -526,7 +530,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         </div>
       </div>
 
-      {/* Desktop Sidebar Toggles */}
       <button
         onClick={() => setLeftSidebarOpen(true)}
         className="hidden lg:block fixed left-6 top-1/2 transform -translate-y-1/2 p-3 bg-gradient-to-br from-slate-800 to-purple-800 rounded-full shadow-lg border border-purple-500/20 hover:shadow-xl transition-all duration-300 hover:scale-110 z-10 backdrop-blur-sm"
