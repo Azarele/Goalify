@@ -65,7 +65,7 @@ export const AuthScreen: React.FC = () => {
               </div>
             </div>
             <h1 className="text-3xl font-bold text-white mb-2">Configuration Required</h1>
-            <p className="text-purple-300">Supabase environment variables are missing</p>
+            <p className="text-purple-300">Environment variables are missing or invalid</p>
           </div>
 
           <div className="bg-gradient-to-br from-slate-800/50 to-purple-800/30 rounded-2xl p-8 border border-purple-500/20 backdrop-blur-sm">
@@ -73,7 +73,7 @@ export const AuthScreen: React.FC = () => {
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
                 <h3 className="font-semibold text-red-300 mb-2">Missing Environment Variables</h3>
                 <p className="text-red-200 text-sm mb-3">
-                  Please ensure your .env file contains the following variables:
+                  Please ensure your environment contains the following variables:
                 </p>
                 <div className="bg-slate-900/50 rounded p-3 font-mono text-xs text-gray-300">
                   <div>VITE_SUPABASE_URL=your_supabase_url</div>
@@ -82,10 +82,16 @@ export const AuthScreen: React.FC = () => {
               </div>
 
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                <h3 className="font-semibold text-blue-300 mb-2">For Netlify Deployment</h3>
-                <p className="text-blue-200 text-sm">
-                  Make sure to set these environment variables in your Netlify site settings under 
-                  "Environment variables" section.
+                <h3 className="font-semibold text-blue-300 mb-2">For Local Development</h3>
+                <p className="text-blue-200 text-sm mb-2">
+                  Create a <code className="bg-slate-700 px-1 rounded">.env</code> file in the project root with your environment variables.
+                </p>
+              </div>
+
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                <h3 className="font-semibold text-yellow-300 mb-2">For Netlify Deployment</h3>
+                <p className="text-yellow-200 text-sm">
+                  Set environment variables in your Netlify site settings under "Environment variables" section.
                 </p>
               </div>
 

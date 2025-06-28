@@ -16,3 +16,7 @@
 
 [context.deploy-preview.environment]
   NODE_ENV = "production"
+
+# Note: Environment variables should be set in Netlify dashboard
+# under Site settings > Environment variables
+# Do not hardcode sensitive values here
