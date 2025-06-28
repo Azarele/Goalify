@@ -41,7 +41,7 @@ if (!hasValidConfig) {
   console.error('5. Restart your development server');
 }
 
-// Create Supabase client with proper configuration and error handling
+// Create Supabase client with proper configuration
 export const supabase = hasValidConfig 
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -50,46 +50,11 @@ export const supabase = hasValidConfig
         detectSessionInUrl: true,
         flowType: 'pkce',
         storageKey: 'sb-goalify-auth-token'
-      },
-      global: {
-        fetch: async (url, options = {}) => {
-          try {
-            const response = await fetch(url, {
-              ...options,
-              headers: {
-                ...options.headers,
-                'Access-Control-Allow-Origin': '*',
-              }
-            });
-            return response;
-          } catch (error) {
-            console.warn('Network request failed:', error);
-            // Return a mock response for development
-            return new Response(JSON.stringify({ error: 'Network unavailable' }), {
-              status: 503,
-              statusText: 'Service Unavailable',
-              headers: { 'Content-Type': 'application/json' }
-            });
-          }
-        }
       }
     })
   : null;
 
 export const isSupabaseConfigured = hasValidConfig;
-
-// Connection test function
-export const testSupabaseConnection = async (): Promise<boolean> => {
-  if (!supabase) return false;
-  
-  try {
-    const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
-    return !error;
-  } catch (error) {
-    console.warn('Supabase connection test failed:', error);
-    return false;
-  }
-};
 
 // Wrapper function for database operations with error handling
 export const safeSupabaseOperation = async <T>(
@@ -127,15 +92,6 @@ if (hasValidConfig) {
   console.log('✅ Supabase configured successfully');
   console.log('📡 Project URL:', supabaseUrl);
   console.log('🔑 Anon key configured (length:', supabaseAnonKey.length, 'chars)');
-  
-  // Test connection in background
-  testSupabaseConnection().then(connected => {
-    if (connected) {
-      console.log('🌐 Supabase connection test: SUCCESS');
-    } else {
-      console.warn('⚠️ Supabase connection test: FAILED - Running in offline mode');
-    }
-  });
 } else {
   console.log('⚠️ Supabase not configured - running in demo mode');
   console.log('💡 Please check your environment variables and restart the server');

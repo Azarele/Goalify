@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Target, TrendingUp, CheckCircle, Calendar, Star, Zap, Trophy, Award, Loader, AlertCircle, Clock } from 'lucide-react';
 import { CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
-import { getSessionGoals, updateGoal, updateUserProfile } from '../services/database';
+import { getSessionGoals, saveGoal, updateUserProfile } from '../services/database';
 import { verifyGoalCompletion } from '../services/openai';
 import { useAuth } from '../hooks/useAuth';
 
@@ -63,23 +63,21 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
 
     try {
-      const result = await getSessionGoals(user.id, currentSession.id);
-      if (result.data) {
-        // Transform database goals to component goals
-        const transformedGoals = result.data.map(dbGoal => ({
-          id: dbGoal.id,
-          description: dbGoal.description,
-          xpValue: dbGoal.xp_value || 10,
-          difficulty: dbGoal.difficulty as 'easy' | 'medium' | 'hard',
-          motivation: dbGoal.motivation || 5,
-          completed: dbGoal.completed || false,
-          completedAt: dbGoal.completed_at ? new Date(dbGoal.completed_at) : undefined,
-          completionReasoning: dbGoal.completion_reasoning || undefined,
-          deadline: dbGoal.deadline ? new Date(dbGoal.deadline) : undefined,
-          createdAt: new Date(dbGoal.created_at || Date.now())
-        }));
-        setGoals(transformedGoals);
-      }
+      const sessionGoals = await getSessionGoals(user.id, currentSession.id);
+      // Transform database goals to component goals
+      const transformedGoals = sessionGoals.map(dbGoal => ({
+        id: dbGoal.id,
+        description: dbGoal.description,
+        xpValue: dbGoal.xpValue || 50,
+        difficulty: dbGoal.difficulty as 'easy' | 'medium' | 'hard',
+        motivation: dbGoal.motivation || 5,
+        completed: dbGoal.completed || false,
+        completedAt: dbGoal.completedAt,
+        completionReasoning: dbGoal.completionReasoning,
+        deadline: dbGoal.deadline,
+        createdAt: dbGoal.createdAt
+      }));
+      setGoals(transformedGoals);
     } catch (error) {
       console.error('Error loading goals:', error);
     }
@@ -282,12 +280,15 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     if (!goal) return;
 
     try {
-      // Update goal as completed using updateGoal
-      await updateGoal(goalId, {
+      // Update goal as completed
+      const updatedGoal = { 
+        ...goal, 
         completed: true,
-        completed_at: new Date().toISOString(),
-        completion_reasoning: reasoning
-      });
+        completedAt: new Date(),
+        completionReasoning: reasoning
+      };
+
+      await saveGoal(user.id, currentSession?.id || '', updatedGoal);
 
       // Award XP and update user profile
       const newXP = userXP + xpReward;

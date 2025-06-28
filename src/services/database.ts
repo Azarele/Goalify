@@ -1,653 +1,609 @@
-import { supabase, safeSupabaseOperation } from '../lib/supabase';
-import type { Database } from '../lib/supabase';
+import { supabase, safeSupabaseOperation, isSupabaseConfigured } from '../lib/supabase';
+import { CoachingSession, Goal, UserProfile, Message } from '../types/coaching';
 
-type UserProfile = Database['public']['Tables']['user_profiles']['Row'];
-type UserProfileInsert = Database['public']['Tables']['user_profiles']['Insert'];
-type UserProfileUpdate = Database['public']['Tables']['user_profiles']['Update'];
-
-type CoachingSession = Database['public']['Tables']['coaching_sessions']['Row'];
-type CoachingSessionInsert = Database['public']['Tables']['coaching_sessions']['Insert'];
-type CoachingSessionUpdate = Database['public']['Tables']['coaching_sessions']['Update'];
-
-type Goal = Database['public']['Tables']['goals']['Row'];
-type GoalInsert = Database['public']['Tables']['goals']['Insert'];
-type GoalUpdate = Database['public']['Tables']['goals']['Update'];
-
-type Achievement = Database['public']['Tables']['achievements']['Row'];
-type AchievementInsert = Database['public']['Tables']['achievements']['Insert'];
-
-type Conversation = Database['public']['Tables']['conversations']['Row'];
-type ConversationInsert = Database['public']['Tables']['conversations']['Insert'];
-type ConversationUpdate = Database['public']['Tables']['conversations']['Update'];
-
-type Message = Database['public']['Tables']['messages']['Row'];
-type MessageInsert = Database['public']['Tables']['messages']['Insert'];
-
-// Mock data for offline mode
-const mockUserProfile: UserProfile = {
-  id: 'mock-profile-id',
-  user_id: 'mock-user-id',
-  name: 'Demo User',
-  total_xp: 150,
-  level: 3,
-  daily_streak: 5,
-  last_activity: new Date().toISOString(),
-  voice_enabled: false,
-  voice_id: '21m00Tcm4TlvDq8ikWAM',
-  memory_enabled: true,
-  tone: 'casual',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
+// Helper function to check if Supabase is available
+const checkSupabase = () => {
+  if (!isSupabaseConfigured || !supabase) {
+    console.warn('⚠️ Supabase not configured - operation will fail gracefully');
+    console.warn('💡 Please check your environment variables:');
+    console.warn('   - VITE_SUPABASE_URL should be your project URL');
+    console.warn('   - VITE_SUPABASE_ANON_KEY should be your anon/public key');
+    throw new Error('Supabase not configured');
+  }
+  return supabase;
 };
 
-const mockConversations: Conversation[] = [
-  {
-    id: 'mock-conv-1',
-    user_id: 'mock-user-id',
-    title: 'Getting Started with Goals',
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 86400000).toISOString(),
-    completed: true,
-  },
-  {
-    id: 'mock-conv-2',
-    user_id: 'mock-user-id',
-    title: 'Weekly Planning Session',
-    created_at: new Date(Date.now() - 172800000).toISOString(),
-    updated_at: new Date(Date.now() - 172800000).toISOString(),
-    completed: false,
-  },
-];
-
-// Helper function to calculate daily streak
-const calculateDailyStreak = (lastActivity: string | null, currentStreak: number): number => {
-  if (!lastActivity) {
-    return 1; // First activity
+// Generate conversation title from first user message
+const generateConversationTitle = (firstMessage: string): string => {
+  const words = firstMessage.trim().split(' ').slice(0, 6);
+  let title = words.join(' ');
+  if (firstMessage.length > title.length) {
+    title += '...';
   }
+  return title || 'New Conversation';
+};
 
-  const lastActivityDate = new Date(lastActivity);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  // Reset time to compare only dates
-  const lastActivityDateOnly = new Date(lastActivityDate.getFullYear(), lastActivityDate.getMonth(), lastActivityDate.getDate());
-  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const yesterdayDateOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
-
-  if (lastActivityDateOnly.getTime() === todayDateOnly.getTime()) {
-    // Already active today, keep current streak
-    return currentStreak;
-  } else if (lastActivityDateOnly.getTime() === yesterdayDateOnly.getTime()) {
-    // Last activity was yesterday, increment streak
-    return currentStreak + 1;
-  } else {
-    // Last activity was more than a day ago, reset streak
-    return 1;
+// Enhanced error handling for Supabase operations
+const handleSupabaseError = (error: any, operation: string) => {
+  console.error(`❌ Error in ${operation}:`, error);
+  
+  if (error.message?.includes('JWSError') || error.message?.includes('JWSInvalidSignature')) {
+    console.error('🔑 JWT Authentication Error - This usually means:');
+    console.error('   1. Your VITE_SUPABASE_ANON_KEY is incorrect');
+    console.error('   2. The key doesn\'t match your Supabase project');
+    console.error('   3. Please verify your credentials in the Supabase dashboard');
   }
+  
+  if (error.code === 'PGRST301') {
+    console.error('🚫 Authentication failed (401) - Invalid API key');
+  }
+  
+  throw error;
 };
 
 // User Profile Operations
-export const getUserProfile = async (userId: string): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('user_profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: { ...mockUserProfile, user_id: userId },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const createUserProfile = async (profile: UserProfileInsert): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('user_profiles')
-      .insert(profile)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: { ...mockUserProfile, ...profile, id: 'mock-profile-id' },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const updateUserProfile = async (userId: string, updates: UserProfileUpdate): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('user_profiles')
-      .update(updates)
-      .eq('user_id', userId)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: { ...mockUserProfile, ...updates, user_id: userId },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const updateDailyStreak = async (userId: string): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    // First get the current profile
-    const { data: profile, error: fetchError } = await supabase!
+export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Fetching user profile for:', userId);
+    
+    const { data, error } = await client
       .from('user_profiles')
       .select('*')
       .eq('user_id', userId)
       .single();
 
-    if (fetchError || !profile) {
-      throw fetchError || new Error('Profile not found');
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log('No user profile found for:', userId);
+        return null;
+      }
+      handleSupabaseError(error, 'getUserProfile');
+      return null;
     }
 
-    // Calculate new streak
-    const newStreak = calculateDailyStreak(profile.last_activity, profile.daily_streak || 0);
-    const now = new Date().toISOString();
+    if (!data) {
+      console.log('No profile data returned for:', userId);
+      return null;
+    }
 
-    // Update the profile with new streak and last activity
-    return await supabase!
-      .from('user_profiles')
-      .update({
-        daily_streak: newStreak,
-        last_activity: now,
-        updated_at: now
-      })
-      .eq('user_id', userId)
-      .select()
-      .single();
-  });
+    console.log('User profile loaded successfully:', data.id);
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    const currentProfile = { ...mockUserProfile, user_id: userId };
-    const newStreak = calculateDailyStreak(currentProfile.last_activity, currentProfile.daily_streak || 0);
+    return {
+      id: data.id,
+      name: data.name,
+      totalXP: data.total_xp || 0,
+      level: data.level || 1,
+      dailyStreak: data.daily_streak || 0,
+      lastActivity: data.last_activity ? new Date(data.last_activity) : null,
+      preferences: {
+        voiceEnabled: data.voice_enabled || false,
+        voiceId: data.voice_id || '21m00Tcm4TlvDq8ikWAM',
+        memoryEnabled: data.memory_enabled !== false,
+        tone: data.tone || 'casual',
+      },
+      longTermGoals: [],
+      currentChallenges: [],
+      achievements: [],
+    };
+  } catch (error) {
+    console.error('Error in getUserProfile:', error);
+    return null;
+  }
+};
+
+export const createUserProfile = async (userId: string, name?: string): Promise<UserProfile> => {
+  try {
+    const client = checkSupabase();
     
-    return {
-      data: {
-        ...currentProfile,
-        daily_streak: newStreak,
-        last_activity: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      error: null,
-      isOffline: true
+    console.log('Creating user profile for:', userId, 'with name:', name);
+    
+    const profileData = {
+      user_id: userId,
+      name: name || null,
+      total_xp: 0,
+      level: 1,
+      daily_streak: 0,
+      last_activity: new Date().toISOString(),
+      voice_enabled: false,
+      voice_id: '21m00Tcm4TlvDq8ikWAM',
+      memory_enabled: true,
+      tone: 'casual' as const,
     };
-  }
 
-  return result;
-};
-
-// Coaching Session Operations
-export const createCoachingSession = async (session: CoachingSessionInsert): Promise<{ data: CoachingSession | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('coaching_sessions')
-      .insert(session)
+    const { data, error } = await client
+      .from('user_profiles')
+      .insert(profileData)
       .select()
       .single();
-  });
 
-  // Return mock data if offline
-  if (result.isOffline) {
+    if (error) {
+      // Handle duplicate key constraint violation (profile already exists)
+      if (error.code === '23505') {
+        console.log('User profile already exists, fetching existing profile');
+        const existingProfile = await getUserProfile(userId);
+        if (existingProfile) {
+          return existingProfile;
+        }
+      }
+      handleSupabaseError(error, 'createUserProfile');
+      throw error;
+    }
+
+    console.log('User profile created successfully:', data.id);
+
     return {
-      data: {
-        id: 'mock-session-id',
-        user_id: session.user_id,
-        title: session.title,
-        messages: session.messages || [],
-        completed: false,
-        summary: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+      id: data.id,
+      name: data.name,
+      totalXP: data.total_xp || 0,
+      level: data.level || 1,
+      dailyStreak: data.daily_streak || 0,
+      lastActivity: new Date(data.last_activity),
+      preferences: {
+        voiceEnabled: data.voice_enabled || false,
+        voiceId: data.voice_id || '21m00Tcm4TlvDq8ikWAM',
+        memoryEnabled: data.memory_enabled !== false,
+        tone: data.tone || 'casual',
       },
-      error: null,
-      isOffline: true
+      longTermGoals: [],
+      currentChallenges: [],
+      achievements: [],
     };
+  } catch (error) {
+    console.error('Error in createUserProfile:', error);
+    throw error;
   }
-
-  return result;
 };
 
-export const updateCoachingSession = async (sessionId: string, updates: CoachingSessionUpdate): Promise<{ data: CoachingSession | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('coaching_sessions')
-      .update(updates)
-      .eq('id', sessionId)
-      .select()
+export const updateUserProfile = async (userId: string, updates: Partial<UserProfile>): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Updating user profile for:', userId);
+    
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only include fields that are provided
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.totalXP !== undefined) updateData.total_xp = updates.totalXP;
+    if (updates.level !== undefined) updateData.level = updates.level;
+    if (updates.dailyStreak !== undefined) updateData.daily_streak = updates.dailyStreak;
+    if (updates.lastActivity !== undefined) updateData.last_activity = updates.lastActivity?.toISOString();
+    
+    if (updates.preferences) {
+      if (updates.preferences.voiceEnabled !== undefined) updateData.voice_enabled = updates.preferences.voiceEnabled;
+      if (updates.preferences.voiceId !== undefined) updateData.voice_id = updates.preferences.voiceId;
+      if (updates.preferences.memoryEnabled !== undefined) updateData.memory_enabled = updates.preferences.memoryEnabled;
+      if (updates.preferences.tone !== undefined) updateData.tone = updates.preferences.tone;
+    }
+
+    const { error } = await client
+      .from('user_profiles')
+      .update(updateData)
+      .eq('user_id', userId);
+
+    if (error) {
+      handleSupabaseError(error, 'updateUserProfile');
+      throw error;
+    }
+
+    console.log('User profile updated successfully');
+  } catch (error) {
+    console.error('Error in updateUserProfile:', error);
+    throw error;
+  }
+};
+
+// Conversation Operations
+export const createConversation = async (userId: string, firstMessage: string): Promise<string> => {
+  try {
+    const client = checkSupabase();
+    
+    const title = generateConversationTitle(firstMessage);
+    
+    const { data, error } = await client
+      .from('conversations')
+      .insert({
+        user_id: userId,
+        title,
+      })
+      .select('id')
       .single();
-  });
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: sessionId,
-        user_id: 'mock-user-id',
-        title: updates.title || 'Mock Session',
-        messages: updates.messages || [],
-        completed: updates.completed || false,
-        summary: updates.summary || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      error: null,
-      isOffline: true
-    };
+    if (error) {
+      handleSupabaseError(error, 'createConversation');
+      throw error;
+    }
+
+    console.log('Conversation created successfully:', data.id);
+    return data.id;
+  } catch (error) {
+    console.error('Error in createConversation:', error);
+    throw error;
   }
-
-  return result;
 };
 
-export const getCoachingSessions = async (userId: string): Promise<{ data: CoachingSession[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
+export const getUserConversations = async (userId: string): Promise<Array<{
+  id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+  completed: boolean;
+}>> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Fetching conversations for user:', userId);
+    
+    const { data, error } = await client
+      .from('conversations')
+      .select('id, title, created_at, updated_at, completed')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      handleSupabaseError(error, 'getUserConversations');
+      return [];
+    }
+
+    console.log('Fetched conversations:', data?.length || 0);
+
+    return (data || []).map(conv => ({
+      id: conv.id,
+      title: conv.title,
+      created_at: new Date(conv.created_at),
+      updated_at: new Date(conv.updated_at),
+      completed: conv.completed || false,
+    }));
+  } catch (error) {
+    console.error('Error in getUserConversations:', error);
+    return [];
+  }
+};
+
+export const getConversationMessages = async (conversationId: string): Promise<Message[]> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Fetching messages for conversation:', conversationId);
+    
+    const { data, error } = await client
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      handleSupabaseError(error, 'getConversationMessages');
+      return [];
+    }
+
+    console.log('Fetched messages:', data?.length || 0);
+
+    return (data || []).map(msg => ({
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+      timestamp: new Date(msg.created_at),
+      isVoice: msg.is_voice || false,
+    }));
+  } catch (error) {
+    console.error('Error in getConversationMessages:', error);
+    return [];
+  }
+};
+
+export const saveMessage = async (conversationId: string, message: Message): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Saving message to conversation:', conversationId);
+    
+    const { error } = await client
+      .from('messages')
+      .insert({
+        id: message.id,
+        conversation_id: conversationId,
+        role: message.role,
+        content: message.content,
+        is_voice: message.isVoice || false,
+      });
+
+    if (error) {
+      handleSupabaseError(error, 'saveMessage');
+      throw error;
+    }
+
+    // Update conversation's updated_at timestamp
+    await client
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId);
+
+    console.log('Message saved successfully');
+  } catch (error) {
+    console.error('Error in saveMessage:', error);
+    throw error;
+  }
+};
+
+export const updateConversation = async (conversationId: string, updates: {
+  completed?: boolean;
+  title?: string;
+}): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (updates.completed !== undefined) updateData.completed = updates.completed;
+    if (updates.title !== undefined) updateData.title = updates.title;
+
+    const { error } = await client
+      .from('conversations')
+      .update(updateData)
+      .eq('id', conversationId);
+
+    if (error) {
+      handleSupabaseError(error, 'updateConversation');
+      throw error;
+    }
+
+    console.log('Conversation updated successfully');
+  } catch (error) {
+    console.error('Error in updateConversation:', error);
+    throw error;
+  }
+};
+
+// Legacy Session Operations (for backward compatibility)
+export const saveSession = async (userId: string, session: CoachingSession): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Saving session:', session.id, 'for user:', userId);
+    
+    const sessionData = {
+      id: session.id,
+      user_id: userId,
+      title: session.summary || `Session ${new Date().toLocaleDateString()}`,
+      messages: session.messages || [],
+      completed: session.completed || false,
+      summary: session.summary || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client
+      .from('coaching_sessions')
+      .upsert(sessionData);
+
+    if (error) {
+      handleSupabaseError(error, 'saveSession');
+      throw error;
+    }
+
+    console.log('Session saved successfully');
+  } catch (error) {
+    console.error('Error in saveSession:', error);
+    throw error;
+  }
+};
+
+export const getUserSessions = async (userId: string): Promise<CoachingSession[]> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Fetching sessions for user:', userId);
+    
+    const { data, error } = await client
       .from('coaching_sessions')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-  });
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: [
-        {
-          id: 'mock-session-1',
-          user_id: userId,
-          title: 'Goal Setting Session',
-          messages: [],
-          completed: true,
-          summary: 'Discussed career goals and created action plan',
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          updated_at: new Date(Date.now() - 86400000).toISOString(),
-        }
-      ],
-      error: null,
-      isOffline: true
-    };
+    if (error) {
+      handleSupabaseError(error, 'getUserSessions');
+      return [];
+    }
+
+    console.log('Fetched', data?.length || 0, 'sessions');
+
+    return (data || []).map(session => ({
+      id: session.id,
+      date: new Date(session.created_at),
+      messages: session.messages || [],
+      goals: [],
+      insights: [],
+      actions: [],
+      completed: session.completed || false,
+      summary: session.summary,
+    }));
+  } catch (error) {
+    console.error('Error in getUserSessions:', error);
+    return [];
   }
+};
 
-  return result;
+export const getSession = async (userId: string, sessionId: string): Promise<CoachingSession | null> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
+      .from('coaching_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', sessionId)
+      .single();
+
+    if (error) {
+      handleSupabaseError(error, 'getSession');
+      return null;
+    }
+
+    return {
+      id: data.id,
+      date: new Date(data.created_at),
+      messages: data.messages || [],
+      goals: [],
+      insights: [],
+      actions: [],
+      completed: data.completed || false,
+      summary: data.summary,
+    };
+  } catch (error) {
+    console.error('Error in getSession:', error);
+    return null;
+  }
 };
 
 // Goal Operations
-export const createGoal = async (goal: GoalInsert): Promise<{ data: Goal | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('goals')
-      .insert(goal)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: 'mock-goal-id',
-        user_id: goal.user_id,
-        session_id: goal.session_id,
-        description: goal.description,
-        xp_value: goal.xp_value || 10,
-        difficulty: goal.difficulty || 'medium',
-        motivation: goal.motivation || 5,
-        completed: false,
-        completed_at: null,
-        completion_reasoning: null,
-        deadline: goal.deadline || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      error: null,
-      isOffline: true
+export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    console.log('Saving goal:', goal.id, 'for user:', userId);
+    
+    const goalData = {
+      id: goal.id,
+      user_id: userId,
+      session_id: sessionId,
+      description: goal.description,
+      xp_value: goal.xpValue || 50,
+      difficulty: goal.difficulty || 'medium',
+      motivation: goal.motivation || 5,
+      completed: goal.completed || false,
+      completed_at: goal.completedAt?.toISOString() || null,
+      completion_reasoning: goal.completionReasoning || null,
+      deadline: goal.deadline?.toISOString() || null,
+      updated_at: new Date().toISOString(),
     };
-  }
 
-  return result;
+    const { error } = await client
+      .from('goals')
+      .upsert(goalData);
+
+    if (error) {
+      handleSupabaseError(error, 'saveGoal');
+      throw error;
+    }
+
+    console.log('Goal saved successfully');
+  } catch (error) {
+    console.error('Error in saveGoal:', error);
+    throw error;
+  }
 };
 
-export const updateGoal = async (goalId: string, updates: GoalUpdate): Promise<{ data: Goal | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('goals')
-      .update(updates)
-      .eq('id', goalId)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: goalId,
-        user_id: 'mock-user-id',
-        session_id: 'mock-session-id',
-        description: 'Mock goal description',
-        xp_value: 10,
-        difficulty: 'medium',
-        motivation: 5,
-        completed: updates.completed || false,
-        completed_at: updates.completed_at || null,
-        completion_reasoning: updates.completion_reasoning || null,
-        deadline: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const getGoals = async (userId: string): Promise<{ data: Goal[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('goals')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: [
-        {
-          id: 'mock-goal-1',
-          user_id: userId,
-          session_id: 'mock-session-1',
-          description: 'Complete daily exercise routine',
-          xp_value: 15,
-          difficulty: 'medium',
-          motivation: 8,
-          completed: false,
-          completed_at: null,
-          completion_reasoning: null,
-          deadline: new Date(Date.now() + 604800000).toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      ],
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const getSessionGoals = async (userId: string, sessionId: string): Promise<{ data: Goal[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
+export const getSessionGoals = async (userId: string, sessionId: string): Promise<Goal[]> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
       .from('goals')
       .select('*')
       .eq('user_id', userId)
       .eq('session_id', sessionId)
       .order('created_at', { ascending: false });
-  });
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: [
-        {
-          id: 'mock-session-goal-1',
-          user_id: userId,
-          session_id: sessionId,
-          description: 'Complete session-specific goal',
-          xp_value: 20,
-          difficulty: 'medium',
-          motivation: 7,
-          completed: false,
-          completed_at: null,
-          completion_reasoning: null,
-          deadline: new Date(Date.now() + 604800000).toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      ],
-      error: null,
-      isOffline: true
-    };
+    if (error) {
+      handleSupabaseError(error, 'getSessionGoals');
+      return [];
+    }
+
+    return (data || []).map(goal => ({
+      id: goal.id,
+      description: goal.description,
+      xpValue: goal.xp_value || 50,
+      difficulty: goal.difficulty || 'medium',
+      motivation: goal.motivation || 5,
+      completed: goal.completed || false,
+      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
+      completionReasoning: goal.completion_reasoning || undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
+      createdAt: new Date(goal.created_at),
+    }));
+  } catch (error) {
+    console.error('Error in getSessionGoals:', error);
+    return [];
   }
-
-  return result;
 };
 
-// Achievement Operations
-export const createAchievement = async (achievement: AchievementInsert): Promise<{ data: Achievement | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('achievements')
-      .insert(achievement)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: 'mock-achievement-id',
-        user_id: achievement.user_id,
-        title: achievement.title,
-        description: achievement.description,
-        icon: achievement.icon,
-        xp_reward: achievement.xp_reward,
-        unlocked_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const getAchievements = async (userId: string): Promise<{ data: Achievement[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('achievements')
-      .select('*')
-      .eq('user_id', userId)
-      .order('unlocked_at', { ascending: false });
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: [
-        {
-          id: 'mock-achievement-1',
-          user_id: userId,
-          title: 'First Steps',
-          description: 'Completed your first coaching session',
-          icon: '🎯',
-          xp_reward: 25,
-          unlocked_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        }
-      ],
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-// Conversation Operations
-export const getUserConversations = async (userId: string): Promise<{ data: Conversation[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('conversations')
+export const getUserGoals = async (userId: string): Promise<Goal[]> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
+      .from('goals')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-  });
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: mockConversations.map(conv => ({ ...conv, user_id: userId })),
-      error: null,
-      isOffline: true
-    };
+    if (error) {
+      handleSupabaseError(error, 'getUserGoals');
+      return [];
+    }
+
+    return (data || []).map(goal => ({
+      id: goal.id,
+      description: goal.description,
+      xpValue: goal.xp_value || 50,
+      difficulty: goal.difficulty || 'medium',
+      motivation: goal.motivation || 5,
+      completed: goal.completed || false,
+      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
+      completionReasoning: goal.completion_reasoning || undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
+      createdAt: new Date(goal.created_at),
+    }));
+  } catch (error) {
+    console.error('Error in getUserGoals:', error);
+    return [];
   }
-
-  return result;
 };
 
-export const createConversation = async (conversation: ConversationInsert): Promise<{ data: Conversation | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('conversations')
-      .insert(conversation)
-      .select()
-      .single();
-  });
+// Daily Streak Operations
+export const updateDailyStreak = async (userId: string): Promise<number> => {
+  try {
+    const profile = await getUserProfile(userId);
+    if (!profile) return 0;
 
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: 'mock-conversation-id',
-        user_id: conversation.user_id,
-        title: conversation.title,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        completed: false,
-      },
-      error: null,
-      isOffline: true
-    };
+    const today = new Date();
+    const lastActivity = profile.lastActivity;
+    
+    let newStreak = profile.dailyStreak || 0;
+    
+    if (!lastActivity) {
+      // First activity ever
+      newStreak = 1;
+    } else {
+      const daysDiff = Math.floor((today.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff === 0) {
+        // Same day, keep streak
+        newStreak = profile.dailyStreak || 0;
+      } else if (daysDiff === 1) {
+        // Next day, increment streak
+        newStreak = (profile.dailyStreak || 0) + 1;
+      } else {
+        // Missed days, reset streak
+        newStreak = 1;
+      }
+    }
+
+    await updateUserProfile(userId, {
+      ...profile,
+      dailyStreak: newStreak,
+      lastActivity: today,
+    });
+
+    return newStreak;
+  } catch (error) {
+    console.error('Error in updateDailyStreak:', error);
+    return 0;
   }
-
-  return result;
-};
-
-export const updateConversation = async (conversationId: string, updates: ConversationUpdate): Promise<{ data: Conversation | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('conversations')
-      .update(updates)
-      .eq('id', conversationId)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: conversationId,
-        user_id: 'mock-user-id',
-        title: updates.title || 'Mock Conversation',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        completed: updates.completed || false,
-      },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-// Message Operations
-export const getConversationMessages = async (conversationId: string): Promise<{ data: Message[] | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true });
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: [
-        {
-          id: 'mock-message-1',
-          conversation_id: conversationId,
-          role: 'user',
-          content: 'Hello, I need help setting some goals.',
-          created_at: new Date().toISOString(),
-          is_voice: false,
-        },
-        {
-          id: 'mock-message-2',
-          conversation_id: conversationId,
-          role: 'assistant',
-          content: 'I\'d be happy to help you set some meaningful goals! What area of your life would you like to focus on?',
-          created_at: new Date().toISOString(),
-          is_voice: false,
-        }
-      ],
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
-};
-
-export const createMessage = async (message: MessageInsert): Promise<{ data: Message | null; error: any; isOffline?: boolean }> => {
-  const result = await safeSupabaseOperation(async () => {
-    return await supabase!
-      .from('messages')
-      .insert(message)
-      .select()
-      .single();
-  });
-
-  // Return mock data if offline
-  if (result.isOffline) {
-    return {
-      data: {
-        id: 'mock-message-id',
-        conversation_id: message.conversation_id,
-        role: message.role,
-        content: message.content,
-        created_at: new Date().toISOString(),
-        is_voice: message.is_voice || false,
-      },
-      error: null,
-      isOffline: true
-    };
-  }
-
-  return result;
 };
