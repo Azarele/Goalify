@@ -11,7 +11,7 @@ import { TypewriterText } from './TypewriterText';
 import { VoiceIndicator } from './VoiceIndicator';
 import { SessionSidebar } from './SessionSidebar';
 import { GoalSidebar } from './GoalSidebar';
-import { StartConversationButton } from './StartConversationButton';
+import { StartPage } from './StartPage';
 
 interface ConversationalCoachProps {
   userProfile: UserProfile | null;
@@ -73,15 +73,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // Step 4: Update the Application State
+  // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
     try {
       console.log('Loading conversation:', conversationId);
       
-      // Step 3: Fetch the Specific Conversation
+      // Fetch the conversation messages
       const conversationMessages = await getConversationMessages(conversationId);
       
-      // Step 4: Update the Application State
+      // Update application state
       setActiveConversationMessages(conversationMessages);
       setCurrentConversationId(conversationId);
       setHasStartedSession(true);
@@ -130,16 +130,49 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  const handleNewConversation = () => {
-    // Clear all conversation state
-    setActiveConversationMessages([]);
-    setCurrentConversationId(null);
-    setHasStartedSession(false);
-    setGoalSetInSession(false);
-    setIsConversationCompleted(false);
-    setInputText('');
-    resetTranscript();
-    setCurrentlyTyping(null);
+  const handleNewConversation = async () => {
+    if (!user) return;
+
+    const greeting = userProfile?.name 
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`;
+    
+    const assistantMessage: Message = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: greeting,
+      timestamp: new Date()
+    };
+
+    try {
+      // Create new conversation
+      const conversationId = await createConversation(user.id, greeting);
+      setCurrentConversationId(conversationId);
+      
+      // Save the initial message
+      await saveMessage(conversationId, assistantMessage);
+      
+      // Update state
+      setActiveConversationMessages([assistantMessage]);
+      setCurrentlyTyping(assistantMessage.id);
+      setHasStartedSession(true);
+      setGoalSetInSession(false);
+      setIsConversationCompleted(false);
+      setInputText('');
+      resetTranscript();
+      
+      // Update daily streak
+      await updateDailyStreak(user.id);
+      
+      setTimeout(() => {
+        setCurrentlyTyping(null);
+        if (voiceEnabled && isElevenLabsConfigured) {
+          playCoachResponse(greeting);
+        }
+      }, greeting.length * 30);
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+    }
   };
 
   const playCoachResponse = async (text: string) => {
@@ -240,49 +273,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
     
     return null;
-  };
-
-  const handleStartConversation = async () => {
-    if (!user) return;
-
-    const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`
-      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`;
-    
-    const assistantMessage: Message = {
-      id: uuidv4(),
-      role: 'assistant',
-      content: greeting,
-      timestamp: new Date()
-    };
-
-    try {
-      // Create new conversation
-      const conversationId = await createConversation(user.id, greeting);
-      setCurrentConversationId(conversationId);
-      
-      // Save the initial message
-      await saveMessage(conversationId, assistantMessage);
-      
-      // Update state
-      setActiveConversationMessages([assistantMessage]);
-      setCurrentlyTyping(assistantMessage.id);
-      setHasStartedSession(true);
-      setGoalSetInSession(false);
-      setIsConversationCompleted(false);
-      
-      // Update daily streak
-      await updateDailyStreak(user.id);
-      
-      setTimeout(() => {
-        setCurrentlyTyping(null);
-        if (voiceEnabled && isElevenLabsConfigured) {
-          playCoachResponse(greeting);
-        }
-      }, greeting.length * 30);
-    } catch (error) {
-      console.error('Error starting conversation:', error);
-    }
   };
 
   const sendMessage = async (content: string, isVoice = false) => {
@@ -452,11 +442,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const stageInfo = getStageInfo();
 
+  // Show start page if no session has started
   if (!hasStartedSession) {
     return (
-      <div className="flex h-full relative">
-        <StartConversationButton onStart={handleStartConversation} />
-      </div>
+      <StartPage 
+        userProfile={userProfile}
+        onStartNewConversation={handleNewConversation}
+        onSelectConversation={handleConversationSelect}
+      />
     );
   }
 
