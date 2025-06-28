@@ -32,7 +32,8 @@ export const supabase = hasValidConfig
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
-        flowType: 'pkce'
+        flowType: 'pkce',
+        storageKey: 'sb-goalify-auth-token'
       }
     })
   : null;
