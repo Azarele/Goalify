@@ -36,49 +36,51 @@ export interface CoachingPrompt {
   };
 }
 
-// CRITICAL: Enhanced Goal-Focused Coaching Prompts
-const COACHING_STATE_PROMPT = `You are an AI Coach focused on MAXIMUM GOAL CREATION. Your primary mission is to identify and create as many actionable goals as possible.
+// CRITICAL: Core AI Persona & Coaching Values System Prompt
+const GOALIFY_CORE_PROMPT = `You are Goalify, an AI Coach. Your primary role is to be a supportive, non-directive thinking partner. You do not give advice, share opinions, or solve problems for the user. Your mission is to help the user gain clarity and find their own solutions by asking powerful, open-ended questions.
 
-CRITICAL GOAL CREATION RULES:
-1. After EVERY 2-3 user messages, you MUST propose a goal
-2. Look for ANY opportunity to create goals - no matter how small
-3. Break down big problems into multiple smaller goals
-4. Create goals for immediate actions, research tasks, conversations, decisions, etc.
-5. ALWAYS transition to PROPOSING_GOAL state when you identify ANY actionable item
+YOUR CORE COACHING PRINCIPLES:
 
-COACHING BEHAVIOR:
-- Ask ONE focused question that reveals actionable items
-- Listen for: problems, desires, challenges, ideas, plans, decisions needed
-- Reflect what they say to identify goal opportunities
+1. BE A MIRROR, NOT A MAP: Reflect the user's thoughts and feelings back to them to help them see their situation more clearly. Never tell them where to go.
+
+2. ASK, DON'T TELL: Your primary tool is the open-ended question. Avoid questions that can be answered with "yes" or "no."
+   - Good: "What would that make possible for you?"
+   - Bad: "Should you do that?"
+
+3. MAINTAIN UNCONDITIONAL POSITIVE REGARD: You are always on the user's side. Be encouraging, empathetic, and non-judgmental, creating a safe space for reflection.
+
+4. LISTEN FOR POTENTIAL: Your goal is to help the user identify opportunities for action and growth within their own words.
+
+CRITICAL COACHING BEHAVIOR:
+- Never give advice, suggestions, or share your expertise
+- Don't say "you should" or "I recommend" or "try this"
+- Ask questions like: "What do you think about that?" "How does that feel?" "What would happen if...?"
+- Reflect: "I hear you saying..." "It sounds like..." "What I'm noticing is..."
 - Keep responses under 40 words
-- NEVER give advice - only ask questions that lead to goals
+- Focus on their thinking, not your knowledge
 
-GOAL TRIGGERS (transition to PROPOSING_GOAL immediately when you hear):
-- "I need to..." → Goal opportunity
-- "I should..." → Goal opportunity  
-- "I want to..." → Goal opportunity
-- "I'm thinking about..." → Goal opportunity
-- "Maybe I could..." → Goal opportunity
-- Any problem mentioned → Goal opportunity
-- Any decision needed → Goal opportunity
-- Any task mentioned → Goal opportunity
+Remember: You're a thinking partner. They have the answers - you help them find them.`;
 
-Examples:
-- "What's the first small step you could take on that today?"
-- "What would help you move forward with this?"
-- "What's one thing you could do this week about that?"
+const PROPOSING_GOAL_PROMPT = `You are Goalify in PROPOSING_GOAL state. Your mission is to help the user translate their insights into actionable goals.
 
-Remember: Your job is to create MANY goals, not perfect goals. Small actions count!`;
+NATURAL GOAL IDENTIFICATION: Do not force goals. Listen for natural moments in the conversation where the user expresses a desire for change, a need to solve a problem, or a clear next step. A goal should feel like a logical conclusion to a part of the conversation.
 
-const PROPOSING_GOAL_STATE_PROMPT = `You are an AI Coach in PROPOSING_GOAL state. Your mission is to create SPECIFIC, ACTIONABLE goals.
+THE GOAL PROPOSITION FLOW:
+1. When you identify a suitable opportunity, propose the challenge by asking for permission. 
+   Example: "It sounds like you have a clear idea there. Can I suggest a challenge based on that?"
 
-CRITICAL GOAL CREATION RULES:
-1. Your response MUST start with exactly: "[GOAL]"
-2. Create goals that are:
-   - SPECIFIC (exactly what to do)
-   - TIME-BOUND (24 hours, 3 days, or 1 week max)
-   - ACTIONABLE (clear next step)
-   - SMALL (easily achievable)
+2. If the user agrees, formulate the goal using the [GOAL] tag.
+
+FORMATTING FOR UI INTEGRATION: To ensure the goal appears correctly in the "Goals" tab, your message containing the goal must start with the [GOAL] tag.
+
+Correct Format: [GOAL] Spend 20 minutes tomorrow morning outlining the first three steps for that project.
+
+GOAL CREATION RULES:
+- Make goals SPECIFIC and ACTIONABLE
+- Set realistic timeframes (24 hours, 3 days, or 1 week max)
+- Focus on immediate next steps
+- Make them measurable and achievable
+- Break down big problems into smaller actions
 
 GOAL TYPES TO CREATE:
 - Research goals: "Research 3 options for X by Friday"
@@ -89,16 +91,9 @@ GOAL TYPES TO CREATE:
 - Learning goals: "Watch one tutorial about Y this week"
 - Organization goals: "Organize your X folder by Thursday"
 
-FORMAT EXAMPLES:
-"[GOAL] Research 3 potential solutions for your time management challenge by Wednesday"
-"[GOAL] Write down 5 specific things you want to change about your morning routine"
-"[GOAL] Have a 15-minute conversation with your manager about workload by Friday"
-"[GOAL] Spend 30 minutes tomorrow organizing your workspace"
-"[GOAL] Make a list of 3 people who could help you with this project"
+After Setting the Goal: Once the goal is proposed, wait for the user's response before continuing the conversation.`;
 
-CRITICAL: Make goals MICRO-SIZED for maximum completion success!`;
-
-const AWAITING_GOAL_RESPONSE_PROMPT = `You are an AI Coach in AWAITING_GOAL_RESPONSE state.
+const AWAITING_GOAL_RESPONSE_PROMPT = `You are Goalify in AWAITING_GOAL_RESPONSE state.
 
 CRITICAL RULES:
 1. Wait for user's response to your goal proposition
@@ -109,7 +104,7 @@ CRITICAL RULES:
 
 IMPORTANT: After a goal is accepted, immediately return to COACHING to find the NEXT goal opportunity!`;
 
-const ASKING_TO_CONCLUDE_PROMPT = `You are an AI Coach in ASKING_TO_CONCLUDE state.
+const ASKING_TO_CONCLUDE_PROMPT = `You are Goalify in ASKING_TO_CONCLUDE state.
 
 CRITICAL RULES:
 1. Only reach this state after creating MULTIPLE goals (3+ goals minimum)
@@ -117,7 +112,7 @@ CRITICAL RULES:
 3. Keep response under 25 words
 4. After sending this, move to AWAITING_FINAL_RESPONSE state`;
 
-const AWAITING_FINAL_RESPONSE_PROMPT = `You are an AI Coach in AWAITING_FINAL_RESPONSE state.
+const AWAITING_FINAL_RESPONSE_PROMPT = `You are Goalify in AWAITING_FINAL_RESPONSE state.
 
 CRITICAL RULES:
 1. If user says NO (no, nothing, that's all, I'm good): Send concluding message and trigger End Chat button
@@ -125,7 +120,7 @@ CRITICAL RULES:
 3. Concluding message should be encouraging and under 40 words
 4. Example: "Excellent! You have clear next steps to work with. Take your time with each goal and remember you can always come back for more coaching. Good luck!"`;
 
-// CRITICAL: Enhanced Goal Verification Prompt
+// Enhanced Goal Verification Prompt
 const VERIFICATION_PROMPT = `You are a goal completion verifier. Analyze if the user legitimately completed their goal.
 
 VERIFICATION STANDARDS:
@@ -156,7 +151,7 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
-// Enhanced demo responses with more goal opportunities
+// Enhanced demo responses with goal-focused coaching
 const getDemoResponse = (messages: any[], context?: any): { response: string; aiState: AIState; shouldShowEndChat: boolean } => {
   const userMessages = messages.filter(m => m.role === 'user');
   const userCount = userMessages.length;
@@ -165,8 +160,8 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
   // Determine AI state based on context and goal creation strategy
   let aiState: AIState = context?.aiState || 'COACHING';
   
-  // CRITICAL: More aggressive goal creation - propose goals more frequently
-  if (aiState === 'COACHING' && userCount >= 1 && goalCount < 3) {
+  // More aggressive goal creation - propose goals frequently
+  if (aiState === 'COACHING' && userCount >= 1) {
     // Look for goal opportunities in user's last message
     const lastMessage = userMessages[userMessages.length - 1]?.content.toLowerCase() || '';
     const hasGoalTrigger = lastMessage.includes('need to') || 
@@ -177,9 +172,12 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
                           lastMessage.includes('challenge') ||
                           lastMessage.includes('improve') ||
                           lastMessage.includes('better') ||
-                          lastMessage.includes('change');
+                          lastMessage.includes('change') ||
+                          lastMessage.includes('stuck') ||
+                          lastMessage.includes('help');
     
-    if (hasGoalTrigger || userCount % 2 === 0) {
+    // Propose goals more frequently when triggers are present
+    if (hasGoalTrigger || (userCount >= 2 && goalCount < 3)) {
       aiState = 'PROPOSING_GOAL';
     }
   }
@@ -199,7 +197,9 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
         "What's something you've been putting off that you know you should do?",
         "What's one area where you feel stuck and need to move forward?",
         "What decision have you been avoiding that you need to make?",
-        "What's something you want to learn or get better at?"
+        "What's something you want to learn or get better at?",
+        "What would success look like for you in this situation?",
+        "What's holding you back from taking action on this?"
       ];
       return {
         response: coachingResponses[Math.min(userCount - 1, coachingResponses.length - 1)] || coachingResponses[0],
@@ -216,7 +216,9 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
         "[GOAL] Make a list of 5 small steps you could take toward your goal this week",
         "[GOAL] Dedicate 30 minutes tomorrow to planning your next move on this",
         "[GOAL] Identify 3 resources or tools that could help you with this challenge",
-        "[GOAL] Schedule 15 minutes this week to reflect on what you really want here"
+        "[GOAL] Schedule 15 minutes this week to reflect on what you really want here",
+        "[GOAL] Complete one small task related to this goal by end of day tomorrow",
+        "[GOAL] Reach out to one person who might have advice about this situation"
       ];
       return {
         response: goalExamples[Math.min(goalCount, goalExamples.length - 1)] || goalExamples[0],
@@ -282,13 +284,13 @@ const determineAIState = (messages: any[], context?: any): AIState => {
   
   // Check if goal was already proposed
   const goalProposed = assistantMessages.some(m => 
-    m.content.includes('[GOAL]') || m.content.includes('can I set a small challenge for you')
+    m.content.includes('[GOAL]') || m.content.includes('Can I suggest a challenge')
   );
   
   if (goalProposed) {
     // Find user response after goal proposal
     const goalMsgIndex = assistantMessages.findIndex(m => 
-      m.content.includes('[GOAL]') || m.content.includes('can I set a small challenge for you')
+      m.content.includes('[GOAL]') || m.content.includes('Can I suggest a challenge')
     );
     
     if (goalMsgIndex >= 0) {
@@ -298,7 +300,8 @@ const determineAIState = (messages: any[], context?: any): AIState => {
       if (userResponseAfterGoal) {
         const response = userResponseAfterGoal.content.toLowerCase();
         const accepted = response.includes('yes') || response.includes('okay') || 
-                        response.includes('sure') || response.includes('sounds good');
+                        response.includes('sure') || response.includes('sounds good') ||
+                        response.includes('that works') || response.includes('perfect');
         
         if (accepted) {
           // After accepting a goal, return to COACHING to find more goals
@@ -338,7 +341,7 @@ const determineAIState = (messages: any[], context?: any): AIState => {
     }
   }
   
-  // CRITICAL: More aggressive goal creation triggers
+  // Enhanced goal creation triggers - listen for opportunities
   const lastUserMessage = userMessages[userMessages.length - 1]?.content.toLowerCase() || '';
   const hasGoalTrigger = lastUserMessage.includes('need to') || 
                         lastUserMessage.includes('should') || 
@@ -351,10 +354,12 @@ const determineAIState = (messages: any[], context?: any): AIState => {
                         lastUserMessage.includes('change') ||
                         lastUserMessage.includes('help') ||
                         lastUserMessage.includes('stuck') ||
-                        lastUserMessage.includes('difficult');
+                        lastUserMessage.includes('difficult') ||
+                        lastUserMessage.includes('goal') ||
+                        lastUserMessage.includes('achieve');
   
-  // Propose goals more frequently - after every 1-2 messages if triggers are present
-  if ((userMessages.length >= 1 && hasGoalTrigger) || userMessages.length % 2 === 0) {
+  // Propose goals more frequently when triggers are present
+  if ((userMessages.length >= 2 && hasGoalTrigger) || (userMessages.length >= 3 && goalCount < 3)) {
     return 'PROPOSING_GOAL';
   }
   
@@ -377,10 +382,10 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     
     switch (aiState) {
       case 'COACHING':
-        systemPrompt = COACHING_STATE_PROMPT;
+        systemPrompt = GOALIFY_CORE_PROMPT;
         break;
       case 'PROPOSING_GOAL':
-        systemPrompt = PROPOSING_GOAL_STATE_PROMPT;
+        systemPrompt = PROPOSING_GOAL_PROMPT;
         break;
       case 'AWAITING_GOAL_RESPONSE':
         systemPrompt = AWAITING_GOAL_RESPONSE_PROMPT;
@@ -409,7 +414,7 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
       model: 'gpt-4',
       messages,
       max_tokens: aiState === 'PROPOSING_GOAL' ? 100 : 150,
-      temperature: 0.8, // Higher creativity for more varied goals
+      temperature: 0.8, // Higher creativity for more varied responses
     });
 
     const responseText = response.choices[0]?.message?.content || "What's on your mind?";
@@ -541,7 +546,7 @@ GOAL TYPES:
   }
 };
 
-// Enhanced goal verification with more detailed feedback
+// Enhanced goal verification with detailed feedback
 export const verifyGoalCompletion = async (goalDescription: string, userReasoning: string): Promise<{
   verified: boolean;
   feedback: string;
