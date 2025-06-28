@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { MessageCircle, Calendar, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain } from 'lucide-react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
-import { SessionHistory } from './components/SessionHistory';
 import { ProgressDashboard } from './components/ProgressDashboard';
 import { UserAnalysis } from './components/UserAnalysis';
 import { Settings } from './components/Settings';
@@ -13,10 +12,11 @@ import { useAuth } from './hooks/useAuth';
 import { getUserProfile, createUserProfile } from './services/database';
 import { UserProfile } from './types/coaching';
 
-type AppView = 'coaching' | 'history' | 'progress' | 'analysis' | 'settings';
+type AppView = 'coaching' | 'progress' | 'analysis' | 'settings';
 
 function MainApp() {
   const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<AppView>('coaching');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -59,6 +59,11 @@ function MainApp() {
     setUserProfile(null);
   };
 
+  const handleLogoClick = () => {
+    setCurrentView('coaching');
+    navigate('/');
+  };
+
   if (loading || profileLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center">
@@ -84,23 +89,28 @@ function MainApp() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-3">
-            <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-                <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">G</span>
+            <button
+              onClick={handleLogoClick}
+              className="flex items-center space-x-3 hover:opacity-80 transition-opacity"
+            >
+              <div className="relative">
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
+                  <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold text-lg">G</span>
+                  </div>
                 </div>
+                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
               </div>
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
-            </div>
-            
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                Goalify
-              </h1>
-              <p className="text-xs text-purple-300 -mt-1">
-                {userProfile?.name ? `Welcome back, ${userProfile.name}` : 'Your AI Coaching Companion'}
-              </p>
-            </div>
+              
+              <div>
+                <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  Goalify
+                </h1>
+                <p className="text-xs text-purple-300 -mt-1">
+                  {userProfile?.name ? `Welcome back, ${userProfile.name}` : 'Your AI Coaching Companion'}
+                </p>
+              </div>
+            </button>
           </div>
 
           {userProfile && (
@@ -114,7 +124,6 @@ function MainApp() {
           <div className="flex items-center space-x-1">
             {[
               { id: 'coaching', label: 'Coaching', icon: MessageCircle },
-              { id: 'history', label: 'History', icon: Calendar },
               { id: 'progress', label: 'Progress', icon: BarChart3 },
               { id: 'analysis', label: 'Analysis', icon: Brain },
               { id: 'settings', label: 'Settings', icon: SettingsIcon }
@@ -158,12 +167,6 @@ function MainApp() {
         return (
           <div className="h-[calc(100vh-4rem)] relative">
             <ConversationalCoach userProfile={userProfile} />
-          </div>
-        );
-      case 'history':
-        return (
-          <div className="max-w-6xl mx-auto px-4 py-8">
-            <SessionHistory userProfile={userProfile} />
           </div>
         );
       case 'progress':

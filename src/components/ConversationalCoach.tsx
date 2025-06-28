@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw } from 'lucide-react';
+import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
@@ -31,8 +31,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true); // Default open
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true); // Default open
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   
   // Session state
@@ -490,10 +490,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           <div className="relative flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <button
-                onClick={() => setLeftSidebarOpen(true)}
-                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 lg:hidden group"
+                onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                title="Toggle conversation history"
               >
-                <Menu className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                <Clock className="w-5 h-5 text-purple-300 group-hover:text-white" />
               </button>
               
               <div className="relative">
@@ -548,10 +549,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               )}
               
               <button
-                onClick={() => setRightSidebarOpen(true)}
-                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 lg:hidden group"
+                onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                title="Toggle goal tracking"
               >
-                <Sidebar className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                <Target className="w-5 h-5 text-purple-300 group-hover:text-white" />
               </button>
               
               {isPlayingAudio && (
@@ -686,22 +688,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           )}
         </div>
       </div>
-
-      <button
-        onClick={() => setLeftSidebarOpen(true)}
-        className="hidden lg:block fixed left-6 top-1/2 transform -translate-y-1/2 p-3 bg-gradient-to-br from-slate-800 to-purple-800 rounded-full shadow-lg border border-purple-500/20 hover:shadow-xl transition-all duration-300 hover:scale-110 z-10 backdrop-blur-sm"
-        title="📜 Conversation History"
-      >
-        <Menu className="w-5 h-5 text-purple-300" />
-      </button>
-
-      <button
-        onClick={() => setRightSidebarOpen(true)}
-        className="hidden lg:block fixed right-6 top-1/2 transform -translate-y-1/2 p-3 bg-gradient-to-br from-slate-800 to-purple-800 rounded-full shadow-lg border border-purple-500/20 hover:shadow-xl transition-all duration-300 hover:scale-110 z-10 backdrop-blur-sm"
-        title="🎯 Goal Tracking"
-      >
-        <Sidebar className="w-5 h-5 text-purple-300" />
-      </button>
     </div>
   );
 };

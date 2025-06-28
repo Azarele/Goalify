@@ -42,6 +42,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   const [xpGained, setXpGained] = useState(0);
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [expandedGoal, setExpandedGoal] = useState<string | null>(null);
+  const [goalFeedback, setGoalFeedback] = useState<{ [goalId: string]: { feedback: string; verified: boolean } }>({});
 
   useEffect(() => {
     loadGoals();
@@ -93,8 +95,11 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
 
   const handleGoalClick = (goal: Goal) => {
     if (!goal.completed) {
-      setSelectedGoal(goal);
-      setShowCompletionModal(true);
+      if (expandedGoal === goal.id) {
+        setExpandedGoal(null);
+      } else {
+        setExpandedGoal(goal.id);
+      }
     }
   };
 
@@ -104,6 +109,13 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
 
     try {
       const result = await verifyGoalCompletion(goal.description, reasoning);
+      
+      // Store feedback in sidebar
+      setGoalFeedback(prev => ({
+        ...prev,
+        [goalId]: result
+      }));
+      
       return result;
     } catch (error) {
       console.error('Verification error:', error);
@@ -150,6 +162,18 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
   };
 
+  const handleSubmitGoalCompletion = async (goalId: string, reasoning: string) => {
+    const result = await handleVerifyGoal(goalId, reasoning);
+    
+    if (result.verified) {
+      const goal = goals.find(g => g.id === goalId);
+      if (goal) {
+        await handleCompleteGoal(goalId, goal.xpValue);
+        setExpandedGoal(null);
+      }
+    }
+  };
+
   const pendingGoals = goals.filter(g => !g.completed);
   const completedGoals = goals.filter(g => g.completed);
   const completionRate = goals.length > 0 ? Math.round((completedGoals.length / goals.length) * 100) : 0;
@@ -176,20 +200,6 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
         </div>
       )}
 
-      {/* Goal Completion Modal */}
-      {selectedGoal && (
-        <GoalCompletionModal
-          goal={selectedGoal}
-          isOpen={showCompletionModal}
-          onClose={() => {
-            setShowCompletionModal(false);
-            setSelectedGoal(null);
-          }}
-          onVerify={handleVerifyGoal}
-          onComplete={handleCompleteGoal}
-        />
-      )}
-
       {/* Sidebar */}
       <div className={`
         fixed lg:relative top-0 right-0 h-full w-80 bg-gradient-to-b from-slate-800 to-purple-900 border-l border-purple-500/20 z-50
@@ -207,7 +217,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
               </div>
               <button
                 onClick={onClose}
-                className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
+                className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors lg:hidden"
               >
                 <X className="w-5 h-5 text-purple-300" />
               </button>
@@ -291,45 +301,102 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 
                 <div className="space-y-2">
                   {pendingGoals.map((goal) => (
-                    <div 
-                      key={goal.id}
-                      onClick={() => handleGoalClick(goal)}
-                      className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-start space-x-3">
-                        <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
-                          {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
-                          
-                          <div className="flex items-center space-x-2 mt-2">
-                            <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
-                              {goal.difficulty}
-                            </span>
-                            <div className="flex items-center space-x-1 text-xs text-purple-300">
-                              <Star className="w-3 h-3" />
-                              <span>{goal.xpValue} XP</span>
-                            </div>
+                    <div key={goal.id} className="space-y-2">
+                      <div 
+                        onClick={() => handleGoalClick(goal)}
+                        className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer group"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
+                            {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
                           </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
+                            
+                            <div className="flex items-center space-x-2 mt-2">
+                              <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
+                                {goal.difficulty}
+                              </span>
+                              <div className="flex items-center space-x-1 text-xs text-purple-300">
+                                <Star className="w-3 h-3" />
+                                <span>{goal.xpValue} XP</span>
+                              </div>
+                            </div>
 
-                          {goal.deadline && (
-                            <p className="text-xs text-purple-300 mt-1 flex items-center space-x-1">
-                              <Calendar className="w-3 h-3" />
-                              <span>Due: {goal.deadline.toLocaleDateString()}</span>
-                            </p>
-                          )}
-                          
-                          <div className="flex items-center justify-between mt-2">
-                            <span className="text-xs text-purple-400">
-                              Motivation: {goal.motivation}/10
-                            </span>
-                            <span className="text-xs text-gray-400">
-                              {goal.createdAt.toLocaleDateString()}
-                            </span>
+                            {goal.deadline && (
+                              <p className="text-xs text-purple-300 mt-1 flex items-center space-x-1">
+                                <Calendar className="w-3 h-3" />
+                                <span>Due: {goal.deadline.toLocaleDateString()}</span>
+                              </p>
+                            )}
+                            
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-xs text-purple-400">
+                                Motivation: {goal.motivation}/10
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {goal.createdAt.toLocaleDateString()}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
+
+                      {/* Expanded Goal Completion Form */}
+                      {expandedGoal === goal.id && (
+                        <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-4 border border-green-500/20 animate-fade-in">
+                          <h5 className="text-white font-medium mb-3">Complete this challenge</h5>
+                          <textarea
+                            placeholder="Describe how you completed this challenge..."
+                            rows={3}
+                            className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none text-sm"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.ctrlKey) {
+                                const reasoning = (e.target as HTMLTextAreaElement).value;
+                                if (reasoning.trim()) {
+                                  handleSubmitGoalCompletion(goal.id, reasoning);
+                                }
+                              }
+                            }}
+                          />
+                          
+                          {goalFeedback[goal.id] && (
+                            <div className={`mt-3 p-3 rounded-lg border ${
+                              goalFeedback[goal.id].verified 
+                                ? 'bg-green-500/10 border-green-500/20' 
+                                : 'bg-yellow-500/10 border-yellow-500/20'
+                            }`}>
+                              <p className={`text-sm ${
+                                goalFeedback[goal.id].verified ? 'text-green-300' : 'text-yellow-300'
+                              }`}>
+                                {goalFeedback[goal.id].feedback}
+                              </p>
+                            </div>
+                          )}
+                          
+                          <div className="flex space-x-2 mt-3">
+                            <button
+                              onClick={() => setExpandedGoal(null)}
+                              className="flex-1 py-2 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => {
+                                const textarea = document.querySelector(`textarea`) as HTMLTextAreaElement;
+                                const reasoning = textarea?.value;
+                                if (reasoning?.trim()) {
+                                  handleSubmitGoalCompletion(goal.id, reasoning);
+                                }
+                              }}
+                              className="flex-1 py-2 px-3 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg text-sm font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-1"
+                            >
+                              <Trophy className="w-3 h-3" />
+                              <span>Submit</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
