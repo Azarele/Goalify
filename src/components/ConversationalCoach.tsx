@@ -5,7 +5,7 @@ import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
+import { createConversation, getConversationMessages, createMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { TypewriterText } from './TypewriterText';
 import { VoiceIndicator } from './VoiceIndicator';
@@ -125,7 +125,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         setShowEndChatButton(false);
         setAiState('COACHING_Q1');
         
-        await saveMessage(conversationId, welcomeBackMessage);
+        await createMessage(conversationId, welcomeBackMessage);
         
         setTimeout(() => {
           setCurrentlyTyping(null);
@@ -225,7 +225,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const conversationId = await createConversation(user.id, greeting);
       setCurrentConversationId(conversationId);
       
-      await saveMessage(conversationId, assistantMessage);
+      await createMessage(conversationId, assistantMessage);
       
       // Reset all state for new conversation
       setActiveConversationMessages([assistantMessage]);
@@ -321,7 +321,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setActiveConversationMessages(newMessages);
 
     try {
-      await saveMessage(currentConversationId, userMessage);
+      await createMessage(currentConversationId, userMessage);
 
       if (accepted) {
         // CRITICAL: Create goal in database when accepted
@@ -395,7 +395,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setCurrentlyTyping(assistantMessage.id);
       setAiState(aiResponse.aiState);
 
-      await saveMessage(currentConversationId, assistantMessage);
+      await createMessage(currentConversationId, assistantMessage);
 
       // Handle End Chat button visibility
       if (aiResponse.shouldShowEndChat) {
@@ -435,7 +435,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     resetTranscript();
 
     try {
-      await saveMessage(currentConversationId, userMessage);
+      await createMessage(currentConversationId, userMessage);
 
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
@@ -504,7 +504,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setActiveConversationMessages(finalMessages);
       setCurrentlyTyping(assistantMessage.id);
 
-      await saveMessage(currentConversationId, assistantMessage);
+      await createMessage(currentConversationId, assistantMessage);
 
       setTimeout(async () => {
         setCurrentlyTyping(null);
@@ -524,7 +524,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setActiveConversationMessages([...newMessages, errorMessage]);
       
       if (currentConversationId) {
-        await saveMessage(currentConversationId, errorMessage);
+        await createMessage(currentConversationId, errorMessage);
       }
     } finally {
       setIsLoading(false);
