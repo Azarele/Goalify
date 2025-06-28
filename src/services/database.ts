@@ -193,7 +193,11 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
     console.log('User profile updated successfully');
   } catch (error) {
     console.error('Error in updateUserProfile:', error);
-    throw error;
+    // Fallback to local storage for demo mode
+    const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
+    const updatedProfile = { ...localProfile, ...updates };
+    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+    console.log('Profile updated in local storage as fallback');
   }
 };
 
@@ -222,7 +226,18 @@ export const createConversation = async (userId: string, firstMessage: string): 
     return data.id;
   } catch (error) {
     console.error('Error in createConversation:', error);
-    throw error;
+    // Fallback to local storage
+    const conversationId = `conv_${Date.now()}`;
+    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+    localConversations.push({
+      id: conversationId,
+      title: generateConversationTitle(firstMessage),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      completed: false
+    });
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
+    return conversationId;
   }
 };
 
@@ -260,7 +275,13 @@ export const getUserConversations = async (userId: string): Promise<Array<{
     }));
   } catch (error) {
     console.error('Error in getUserConversations:', error);
-    return [];
+    // Fallback to local storage
+    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+    return localConversations.map((conv: any) => ({
+      ...conv,
+      created_at: new Date(conv.created_at),
+      updated_at: new Date(conv.updated_at)
+    }));
   }
 };
 
@@ -292,7 +313,12 @@ export const getConversationMessages = async (conversationId: string): Promise<M
     }));
   } catch (error) {
     console.error('Error in getConversationMessages:', error);
-    return [];
+    // Fallback to local storage
+    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
+    return localMessages.map((msg: any) => ({
+      ...msg,
+      timestamp: new Date(msg.timestamp)
+    }));
   }
 };
 
@@ -326,7 +352,14 @@ export const saveMessage = async (conversationId: string, message: Message): Pro
     console.log('Message saved successfully');
   } catch (error) {
     console.error('Error in saveMessage:', error);
-    throw error;
+    // Fallback to local storage
+    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
+    localMessages.push({
+      ...message,
+      timestamp: message.timestamp.toISOString()
+    });
+    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
+    console.log('Message saved to local storage as fallback');
   }
 };
 
@@ -357,7 +390,14 @@ export const updateConversation = async (conversationId: string, updates: {
     console.log('Conversation updated successfully');
   } catch (error) {
     console.error('Error in updateConversation:', error);
-    throw error;
+    // Fallback to local storage
+    const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
+    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+    const updatedConversations = localConversations.map((conv: any) => 
+      conv.id === conversationId ? { ...conv, ...updates, updated_at: new Date().toISOString() } : conv
+    );
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
+    console.log('Conversation updated in local storage as fallback');
   }
 };
 
@@ -461,7 +501,7 @@ export const getSession = async (userId: string, sessionId: string): Promise<Coa
   }
 };
 
-// CRITICAL: Enhanced Goal Operations with Local Storage Fallback
+// CRITICAL: Enhanced Goal Operations with Local Storage Fallback and Memory Persistence
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   try {
     const client = checkSupabase();
@@ -492,17 +532,25 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
       throw error;
     }
 
-    console.log('Goal saved successfully');
+    console.log('Goal saved successfully to database');
   } catch (error) {
     console.error('Error in saveGoal:', error);
-    // Fallback to local storage for demo mode
+    // CRITICAL: Fallback to local storage for demo mode and offline functionality
     const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
     const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
     
+    const goalToStore = {
+      ...goal,
+      sessionId,
+      createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
+      completedAt: goal.completedAt?.toISOString() || null,
+      deadline: goal.deadline?.toISOString() || null
+    };
+    
     if (goalIndex >= 0) {
-      localGoals[goalIndex] = goal;
+      localGoals[goalIndex] = goalToStore;
     } else {
-      localGoals.push(goal);
+      localGoals.push(goalToStore);
     }
     
     localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
@@ -542,7 +590,14 @@ export const getSessionGoals = async (userId: string, sessionId: string): Promis
     console.error('Error in getSessionGoals:', error);
     // Fallback to local storage
     const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals.filter((goal: any) => goal.sessionId === sessionId);
+    return localGoals
+      .filter((goal: any) => goal.sessionId === sessionId)
+      .map((goal: any) => ({
+        ...goal,
+        createdAt: new Date(goal.createdAt),
+        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+        deadline: goal.deadline ? new Date(goal.deadline) : undefined
+      }));
   }
 };
 
@@ -577,14 +632,21 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
     console.error('Error in getUserGoals:', error);
     // Fallback to local storage
     const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals;
+    return localGoals.map((goal: any) => ({
+      ...goal,
+      createdAt: new Date(goal.createdAt),
+      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined
+    }));
   }
 };
 
-// CRITICAL: New function to get all user goals across all sessions
+// CRITICAL: New function to get all user goals across all sessions with memory persistence
 export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
   try {
     const client = checkSupabase();
+    
+    console.log('Fetching all goals for user:', userId);
     
     const { data, error } = await client
       .from('goals')
@@ -597,7 +659,9 @@ export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
       return [];
     }
 
-    return (data || []).map(goal => ({
+    console.log('Fetched all goals:', data?.length || 0);
+
+    const goals = (data || []).map(goal => ({
       id: goal.id,
       description: goal.description,
       xpValue: goal.xp_value || 50,
@@ -609,11 +673,26 @@ export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
       deadline: goal.deadline ? new Date(goal.deadline) : undefined,
       createdAt: new Date(goal.created_at),
     }));
+
+    // CRITICAL: Store in local storage for offline access and memory persistence
+    localStorage.setItem(`goals_${userId}`, JSON.stringify(goals.map(goal => ({
+      ...goal,
+      createdAt: goal.createdAt.toISOString(),
+      completedAt: goal.completedAt?.toISOString() || null,
+      deadline: goal.deadline?.toISOString() || null
+    }))));
+
+    return goals;
   } catch (error) {
     console.error('Error in getAllUserGoals:', error);
-    // Fallback to local storage
+    // CRITICAL: Fallback to local storage for offline functionality
     const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals;
+    return localGoals.map((goal: any) => ({
+      ...goal,
+      createdAt: new Date(goal.createdAt),
+      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined
+    }));
   }
 };
 

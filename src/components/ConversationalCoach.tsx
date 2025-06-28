@@ -7,6 +7,7 @@ import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/e
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { createConversation, getConversationMessages, saveMessage, updateConversation, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
+import { useGoals } from '../hooks/useGoals';
 import { TypewriterText } from './TypewriterText';
 import { VoiceIndicator } from './VoiceIndicator';
 import { SessionSidebar } from './SessionSidebar';
@@ -15,6 +16,7 @@ import { StartPage } from './StartPage';
 
 interface ConversationalCoachProps {
   userProfile: UserProfile | null;
+  onProfileUpdate: (profile: UserProfile) => void;
 }
 
 interface PendingGoal {
@@ -26,23 +28,12 @@ interface PendingGoal {
   deadline: Date;
 }
 
-interface AcceptedGoal {
-  id: string;
-  description: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  xpValue: number;
-  deadline: Date;
-  completed: boolean;
-  completedAt?: Date;
-  completionReasoning?: string;
-  createdAt: Date;
-  motivation: number;
-}
-
 export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
-  userProfile
+  userProfile,
+  onProfileUpdate
 }) => {
   const { user } = useAuth();
+  const { goals, addGoal, completeGoal, loadGoals } = useGoals();
   
   // Core conversation state
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
@@ -57,9 +48,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [questionCount, setQuestionCount] = useState(0);
   const [pendingGoal, setPendingGoal] = useState<PendingGoal | null>(null);
   
-  // CRITICAL: Goal Management State
-  const [acceptedGoals, setAcceptedGoals] = useState<AcceptedGoal[]>([]);
-  
   // UI state
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -69,6 +57,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   const [showEndChatButton, setShowEndChatButton] = useState(false);
+  const [showXPAnimation, setShowXPAnimation] = useState(false);
+  const [xpGained, setXpGained] = useState(0);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -256,7 +246,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setGoalCount(0);
       setQuestionCount(0);
       setPendingGoal(null);
-      setAcceptedGoals([]); // Reset goals for new conversation
       setIsConversationCompleted(false);
       setShowEndChatButton(false);
       setAiState('COACHING_Q1');
@@ -351,6 +340,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     return {
       id: uuidv4(),
       description,
+      messageId: '',
       difficulty,
       xpValue: xpValues[difficulty],
       deadline
@@ -376,8 +366,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // CRITICAL: Create and add goal to accepted goals list
-        const newGoal: AcceptedGoal = {
+        // CRITICAL: Create and add goal to global goals system
+        const newGoal = {
           id: pendingGoal.id,
           description: pendingGoal.description,
           difficulty: pendingGoal.difficulty,
@@ -388,10 +378,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           motivation: 7 // Default motivation level
         };
         
-        // Add to accepted goals list
-        setAcceptedGoals(prev => [...prev, newGoal]);
+        // Add to global goals system
+        await addGoal(newGoal, currentConversationId);
         
-        console.log(`✅ Goal accepted and added to goals list:`, newGoal.description);
+        console.log(`✅ Goal accepted and added to global goals system:`, newGoal.description);
         
         // Increment goal count and update state
         const newGoalCount = goalCount + 1;
@@ -461,20 +451,80 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  // CRITICAL: Goal completion handler
+  // CRITICAL: Goal completion handler with XP rewards
   const handleGoalCompletion = async (goalId: string, reasoning: string) => {
-    setAcceptedGoals(prev => prev.map(goal => 
-      goal.id === goalId 
-        ? { 
-            ...goal, 
-            completed: true, 
-            completedAt: new Date(),
-            completionReasoning: reasoning
-          }
-        : goal
-    ));
+    if (!user || !userProfile) return;
+
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+
+    try {
+      // Calculate XP with time bonus/penalty
+      const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline, goal.createdAt) : null;
+      let xpMultiplier = 1.0;
+      
+      if (timeInfo && !timeInfo.isOverdue) {
+        // Bonus for completing early
+        if (timeInfo.percentage > 75) xpMultiplier = 1.5;
+        else if (timeInfo.percentage > 50) xpMultiplier = 1.3;
+        else if (timeInfo.percentage > 25) xpMultiplier = 1.1;
+      } else if (timeInfo?.isOverdue) {
+        // Penalty for being overdue
+        xpMultiplier = 0.7;
+      }
+
+      const finalXP = Math.round(goal.xpValue * xpMultiplier);
+      
+      // Complete goal and update profile
+      const result = await completeGoal(goalId, reasoning, finalXP, userProfile);
+      
+      if (result) {
+        // Update local profile state
+        onProfileUpdate({
+          ...userProfile,
+          totalXP: result.newXP,
+          level: result.newLevel
+        });
+
+        // Show XP animation
+        setXpGained(finalXP);
+        setShowXPAnimation(true);
+        setTimeout(() => setShowXPAnimation(false), 3000);
+      }
+      
+      console.log('Goal completed with XP reward:', finalXP);
+    } catch (error) {
+      console.error('Error completing goal:', error);
+    }
+  };
+
+  // Helper function for time calculations
+  const getTimeRemaining = (deadline: Date, createdAt: Date) => {
+    const now = new Date();
+    const timeLeft = deadline.getTime() - now.getTime();
     
-    console.log('Goal completed:', goalId);
+    if (timeLeft <= 0) {
+      return {
+        timeLeft: 'Overdue',
+        percentage: 0,
+        isOverdue: true,
+        totalHours: 0,
+        remainingHours: 0
+      };
+    }
+
+    const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+    const totalTime = deadline.getTime() - createdAt.getTime();
+    const totalHours = Math.floor(totalTime / (1000 * 60 * 60));
+    const percentage = totalHours > 0 ? Math.max(0, (timeLeft / totalTime) * 100) : 0;
+
+    return {
+      timeLeft: `${hours}h`,
+      percentage,
+      isOverdue: false,
+      totalHours,
+      remainingHours: hours
+    };
   };
 
   const sendMessage = async (content: string, isVoice = false) => {
@@ -609,7 +659,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setGoalCount(0);
     setQuestionCount(0);
     setPendingGoal(null);
-    setAcceptedGoals([]); // Reset goals when ending chat
     setIsConversationCompleted(false);
     setShowEndChatButton(false);
     setInputText('');
@@ -663,6 +712,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
+      {/* XP Animation */}
+      {showXPAnimation && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-60 pointer-events-none">
+          <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-full shadow-2xl animate-bounce">
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="w-5 h-5" />
+              <span className="font-bold">+{xpGained} XP!</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SessionSidebar 
         isOpen={leftSidebarOpen}
         onClose={() => setLeftSidebarOpen(false)}
@@ -675,7 +736,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       <GoalSidebar 
         isOpen={rightSidebarOpen}
         onClose={() => setRightSidebarOpen(false)}
-        goals={acceptedGoals}
+        goals={goals}
         onGoalComplete={handleGoalCompletion}
         userProfile={userProfile}
       />
@@ -706,22 +767,31 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
                   <p className="text-sm text-purple-200">
-                    {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {acceptedGoals.length} goals
+                    {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {goals.filter(g => !g.completed).length} active goals
                   </p>
                 </div>
               </div>
             </div>
 
             {userProfile && (
-              <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
-                <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
-                <span className="text-orange-200 text-xs">day streak</span>
+              <div className="hidden md:flex items-center space-x-4">
+                {/* Level Display */}
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-1 rounded-full border border-yellow-500/30">
+                  <span className="text-yellow-300 font-medium text-sm">Level {userProfile.level || 1}</span>
+                  <span className="text-yellow-200 text-xs">{userProfile.totalXP || 0} XP</span>
+                </div>
+                
+                {/* Goals Count */}
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-3 py-1 rounded-full border border-purple-500/30">
+                  <span className="text-purple-300 font-medium text-sm">{goals.filter(g => g.completed).length}/{goals.length}</span>
+                  <span className="text-purple-200 text-xs">goals</span>
+                </div>
               </div>
             )}
             
             <div className="flex items-center space-x-1">
               {/* CRITICAL: End Chat Button - Only appears after multiple goals */}
-              {showEndChatButton && acceptedGoals.length >= 2 && (
+              {showEndChatButton && goals.filter(g => !g.completed).length >= 2 && (
                 <button
                   onClick={handleEndChat}
                   className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300 animate-fade-in"
@@ -917,10 +987,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             </div>
           )}
 
-          {isConversationCompleted && acceptedGoals.length >= 2 && (
+          {isConversationCompleted && goals.filter(g => !g.completed).length >= 2 && (
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Great session! You created {acceptedGoals.length} actionable goals. Use "End Chat" to finish or continue exploring.</span>
+                <span className="text-sm font-medium">Great session! You created {goals.filter(g => !g.completed).length} actionable goals. Use "End Chat" to finish or continue exploring.</span>
               </div>
             </div>
           )}

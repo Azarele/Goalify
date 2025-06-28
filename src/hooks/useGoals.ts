@@ -24,6 +24,7 @@ export const useGoals = () => {
       setLoading(true);
       const userGoals = await getAllUserGoals(user.id);
       setGoals(userGoals);
+      console.log('Goals loaded in useGoals hook:', userGoals.length);
     } catch (error) {
       console.error('Error loading goals:', error);
     } finally {
@@ -37,6 +38,7 @@ export const useGoals = () => {
     try {
       await saveGoal(user.id, sessionId, goal);
       setGoals(prev => [goal, ...prev]);
+      console.log('Goal added to global state:', goal.description);
     } catch (error) {
       console.error('Error adding goal:', error);
     }
@@ -74,6 +76,7 @@ export const useGoals = () => {
         g.id === goalId ? completedGoal : g
       ));
 
+      console.log('Goal completed with XP reward:', xpGained);
       return { newXP, newLevel };
     } catch (error) {
       console.error('Error completing goal:', error);
