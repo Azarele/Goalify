@@ -1,16 +1,28 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Get environment variables
+// Get environment variables with validation
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Check if we have valid environment variables
-const hasValidConfig = Boolean(supabaseUrl && supabaseAnonKey);
+// Validate environment variables
+const hasValidConfig = Boolean(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  supabaseUrl.startsWith('https://') &&
+  supabaseAnonKey.length > 20
+);
 
 if (!hasValidConfig) {
-  console.error('❌ Missing Supabase environment variables. Please check your .env file contains:');
-  console.error('VITE_SUPABASE_URL=your_supabase_url');
-  console.error('VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
+  console.error('❌ Invalid Supabase configuration detected:');
+  console.error('VITE_SUPABASE_URL:', supabaseUrl ? '✓ Present' : '❌ Missing');
+  console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✓ Present' : '❌ Missing');
+  
+  if (supabaseUrl && !supabaseUrl.startsWith('https://')) {
+    console.error('❌ VITE_SUPABASE_URL must start with https://');
+  }
+  if (supabaseAnonKey && supabaseAnonKey.length <= 20) {
+    console.error('❌ VITE_SUPABASE_ANON_KEY appears to be invalid (too short)');
+  }
 }
 
 // Create Supabase client with proper configuration
@@ -26,6 +38,13 @@ export const supabase = hasValidConfig
   : null;
 
 export const isSupabaseConfigured = hasValidConfig;
+
+// Log configuration status
+if (hasValidConfig) {
+  console.log('✅ Supabase configured successfully');
+} else {
+  console.log('⚠️ Supabase not configured - running in demo mode');
+}
 
 export type Database = {
   public: {

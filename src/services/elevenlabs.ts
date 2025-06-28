@@ -10,16 +10,22 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   similarityBoost: 0.75
 };
 
-const isElevenLabsConfigured = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY);
+const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+const isElevenLabsConfigured = Boolean(apiKey && apiKey.length > 10);
+
+// Log configuration status
+if (isElevenLabsConfigured) {
+  console.log('✅ ElevenLabs configured successfully');
+} else {
+  console.log('⚠️ ElevenLabs not configured - voice features disabled');
+}
 
 export const generateSpeech = async (
   text: string, 
   settings: Partial<VoiceSettings> = {}
 ): Promise<ArrayBuffer> => {
-  const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
-  
   if (!apiKey || !isElevenLabsConfigured) {
-    throw new Error('ElevenLabs API key not configured - voice features disabled in demo mode');
+    throw new Error('ElevenLabs API key not configured - voice features disabled');
   }
 
   const voiceSettings = { ...DEFAULT_VOICE_SETTINGS, ...settings };
@@ -46,7 +52,7 @@ export const generateSpeech = async (
     );
 
     if (!response.ok) {
-      throw new Error(`ElevenLabs API error: ${response.status}`);
+      throw new Error(`ElevenLabs API error: ${response.status} ${response.statusText}`);
     }
 
     return await response.arrayBuffer();
@@ -58,17 +64,21 @@ export const generateSpeech = async (
 
 export const playAudio = (audioBuffer: ArrayBuffer): Promise<void> => {
   return new Promise((resolve, reject) => {
-    const audioContext = new AudioContext();
-    
-    audioContext.decodeAudioData(audioBuffer)
-      .then(decodedData => {
-        const source = audioContext.createBufferSource();
-        source.buffer = decodedData;
-        source.connect(audioContext.destination);
-        source.onended = () => resolve();
-        source.start();
-      })
-      .catch(reject);
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      audioContext.decodeAudioData(audioBuffer)
+        .then(decodedData => {
+          const source = audioContext.createBufferSource();
+          source.buffer = decodedData;
+          source.connect(audioContext.destination);
+          source.onended = () => resolve();
+          source.start();
+        })
+        .catch(reject);
+    } catch (error) {
+      reject(error);
+    }
   });
 };
 

@@ -9,28 +9,54 @@ export const useAuth = () => {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
-      console.error('Supabase not configured');
+      console.warn('Supabase not configured - auth will not work');
       setLoading(false);
       return;
     }
 
+    let mounted = true;
+
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    const getInitialSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting initial session:', error);
+        }
+        
+        if (mounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error in getInitialSession:', error);
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    getInitialSession();
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.id);
+      
+      if (mounted) {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string) => {
@@ -38,14 +64,21 @@ export const useAuth = () => {
       return { data: null, error: { message: 'Supabase not configured' } };
     }
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
-    return { data, error };
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      
+      console.log('Sign up result:', { data: data?.user?.id, error });
+      return { data, error };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      return { data: null, error: { message: 'Sign up failed' } };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
@@ -53,11 +86,18 @@ export const useAuth = () => {
       return { data: null, error: { message: 'Supabase not configured' } };
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { data, error };
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      console.log('Sign in result:', { data: data?.user?.id, error });
+      return { data, error };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      return { data: null, error: { message: 'Sign in failed' } };
+    }
   };
 
   const signInWithGoogle = async () => {
@@ -65,17 +105,24 @@ export const useAuth = () => {
       return { data: null, error: { message: 'Supabase not configured' } };
     }
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
-      },
-    });
-    return { data, error };
+      });
+      
+      console.log('Google sign in result:', { data, error });
+      return { data, error };
+    } catch (error) {
+      console.error('Google sign in error:', error);
+      return { data: null, error: { message: 'Google sign in failed' } };
+    }
   };
 
   const signOut = async () => {
@@ -83,8 +130,14 @@ export const useAuth = () => {
       return { error: null };
     }
 
-    const { error } = await supabase.auth.signOut();
-    return { error };
+    try {
+      const { error } = await supabase.auth.signOut();
+      console.log('Sign out result:', { error });
+      return { error };
+    } catch (error) {
+      console.error('Sign out error:', error);
+      return { error: { message: 'Sign out failed' } };
+    }
   };
 
   return {

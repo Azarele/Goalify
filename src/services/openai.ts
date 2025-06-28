@@ -2,7 +2,14 @@ import OpenAI from 'openai';
 
 // Check if OpenAI API key is configured
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-const isOpenAIConfigured = Boolean(apiKey);
+const isOpenAIConfigured = Boolean(apiKey && apiKey.length > 20);
+
+// Log configuration status
+if (isOpenAIConfigured) {
+  console.log('✅ OpenAI configured successfully');
+} else {
+  console.log('⚠️ OpenAI not configured - using demo responses');
+}
 
 const openai = isOpenAIConfigured ? new OpenAI({
   apiKey,
@@ -106,7 +113,7 @@ const getDemoResponse = (messages: any[]): string => {
 
 export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<string> => {
   if (!isOpenAIConfigured || !openai) {
-    console.log('OpenAI not configured, using demo response');
+    console.log('Using demo response (OpenAI not configured)');
     return getDemoResponse(prompt.messages);
   }
 
