@@ -75,3 +75,13 @@ export interface Achievement {
   xpReward: number;
   unlockedAt: Date;
 }
+
+// AI State Machine Types
+export type AIState = 'COACHING' | 'PROPOSING_GOAL' | 'AWAITING_GOAL_RESPONSE' | 'CONCLUDING';
+
+export interface AIStateContext {
+  currentState: AIState;
+  goalProposed: boolean;
+  userAcceptedGoal: boolean;
+  conversationCompleted: boolean;
+}

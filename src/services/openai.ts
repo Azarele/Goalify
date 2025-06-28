@@ -16,6 +16,9 @@ const openai = isOpenAIConfigured ? new OpenAI({
   maxRetries: 2,
 }) : null;
 
+// AI State Machine Types
+export type AIState = 'COACHING' | 'PROPOSING_GOAL' | 'AWAITING_GOAL_RESPONSE' | 'CONCLUDING';
+
 export interface CoachingPrompt {
   messages: Array<{
     role: 'system' | 'user' | 'assistant';
@@ -25,27 +28,62 @@ export interface CoachingPrompt {
     userName?: string;
     previousGoals?: string[];
     currentStage?: string;
-    sessionHistory?: string;
-    goalAlreadySet?: boolean;
+    aiState?: AIState;
+    goalProposed?: boolean;
+    userAcceptedGoal?: boolean;
   };
 }
 
-const COACHING_PROMPT = `You are an AI Coach. Follow these STRICT rules:
+// Strict AI State Machine Prompts
+const COACHING_STATE_PROMPT = `You are an AI Coach in COACHING state. Follow these STRICT rules:
 
-1. SINGLE ACTION PRINCIPLE: When setting a goal, your response must ONLY be the goal proposition. Never send multiple messages.
-
-2. GOAL SETTING: After 2-4 exchanges, say EXACTLY: "Based on what you've shared, can I set a small challenge for you? [Specific goal description]"
-
-3. AFTER GOAL SETTING: Wait for user response. If they accept, ONLY ask: "Is there anything else I can help you with today?"
-
-4. CONVERSATION STYLE: Ask one question at a time, reflect responses, help discover answers. Keep under 50 words.
-
-5. NO ADVICE: Never give suggestions. Only ask questions and reflect.
+1. Ask ONE open-ended coaching question at a time
+2. Reflect what the user says back to them
+3. Help them discover their own answers
+4. Keep responses under 40 words
+5. NEVER give advice or suggestions
+6. After 2-3 exchanges, you MUST transition to PROPOSING_GOAL state
 
 Examples:
-- "What's driving this feeling?"
-- "How would success look?"
-- "Based on what you've shared, can I set a small challenge for you? Send your CV to 1 person for feedback within 48 hours."`;
+- "What's driving this feeling for you?"
+- "How would success look to you?"
+- "What's the one thing you'd focus on?"
+
+CRITICAL: When you have enough information (after 2-3 user messages), your NEXT response must be a goal proposition.`;
+
+const PROPOSING_GOAL_STATE_PROMPT = `You are an AI Coach in PROPOSING_GOAL state. 
+
+CRITICAL RULES:
+1. Your response must ONLY be the goal proposition
+2. Start with exactly: "Based on what you've shared, can I set a small challenge for you?"
+3. Follow with ONE specific, actionable goal
+4. Keep the entire response under 50 words
+5. Do NOT send any other text
+
+Example format:
+"Based on what you've shared, can I set a small challenge for you? [Specific actionable goal with timeframe]"
+
+After sending this, you automatically move to AWAITING_GOAL_RESPONSE state.`;
+
+const AWAITING_GOAL_RESPONSE_PROMPT = `You are an AI Coach in AWAITING_GOAL_RESPONSE state.
+
+CRITICAL RULES:
+1. You are waiting for the user's response to your goal proposition
+2. If they accept (yes, okay, sure, sounds good): Ask "Is there anything else I can help you with today?"
+3. If they decline or want changes: Return to COACHING state
+4. Keep responses under 30 words
+5. Do NOT propose new goals in this state`;
+
+const CONCLUDING_STATE_PROMPT = `You are an AI Coach in CONCLUDING state.
+
+CRITICAL RULES:
+1. The user has indicated they're done (said no to "anything else")
+2. Send ONE final encouraging message
+3. Keep it under 40 words
+4. End with something like "Good luck!" or "You've got this!"
+5. This triggers the "End Chat" button to appear
+
+Example: "Perfect! You're all set. Take your time with your challenge. Good luck!"`;
 
 const VERIFICATION_PROMPT = `Verify goal completion and provide feedback.
 
@@ -67,19 +105,44 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
+// Demo responses for each state
 const getDemoResponse = (messages: any[], context?: any): string => {
-  if (context?.goalAlreadySet) return "Is there anything else I can help you with today?";
+  const userMessages = messages.filter(m => m.role === 'user');
+  const userCount = userMessages.length;
   
-  const responses = [
-    "What's driving this feeling for you?",
-    "What would success look like?",
-    "Based on what you've shared, can I set a small challenge for you? Write down 3 specific things you want to achieve this week.",
-    "What would need to change for you to feel confident?",
-    "What's the one thing you'd focus on?"
-  ];
+  // Determine AI state based on context or conversation flow
+  let aiState: AIState = context?.aiState || 'COACHING';
   
-  const userCount = messages.filter(m => m.role === 'user').length;
-  return responses[Math.min(userCount - 1, responses.length - 1)] || responses[0];
+  // State machine logic for demo mode
+  if (aiState === 'COACHING' && userCount >= 2) {
+    aiState = 'PROPOSING_GOAL';
+  }
+  
+  switch (aiState) {
+    case 'COACHING':
+      const coachingResponses = [
+        "What's driving this feeling for you?",
+        "What would success look like?",
+        "What's the one thing you'd focus on?",
+        "How does that make you feel?"
+      ];
+      return coachingResponses[Math.min(userCount - 1, coachingResponses.length - 1)] || coachingResponses[0];
+      
+    case 'PROPOSING_GOAL':
+      return "Based on what you've shared, can I set a small challenge for you? Write down 3 specific things you want to achieve this week.";
+      
+    case 'AWAITING_GOAL_RESPONSE':
+      if (context?.userAcceptedGoal) {
+        return "Is there anything else I can help you with today?";
+      }
+      return "What do you think about this challenge?";
+      
+    case 'CONCLUDING':
+      return "Perfect! You're all set. Take your time with your challenge and remember you can always come back. Good luck!";
+      
+    default:
+      return "What's on your mind today?";
+  }
 };
 
 const handleError = (error: any): string => {
@@ -93,34 +156,128 @@ const handleError = (error: any): string => {
   return "Connection trouble. Please try again.";
 };
 
-export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<string> => {
+// Determine AI state based on conversation context
+const determineAIState = (messages: any[], context?: any): AIState => {
+  if (context?.aiState) return context.aiState;
+  
+  const userMessages = messages.filter(m => m.role === 'user');
+  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  
+  // Check if goal was already proposed
+  const goalProposed = assistantMessages.some(m => 
+    m.content.includes('can I set a small challenge for you')
+  );
+  
+  if (goalProposed) {
+    // Check if user responded to goal
+    const lastUserMessage = userMessages[userMessages.length - 1]?.content.toLowerCase();
+    const userAccepted = lastUserMessage && (
+      lastUserMessage.includes('yes') || 
+      lastUserMessage.includes('okay') || 
+      lastUserMessage.includes('sure') ||
+      lastUserMessage.includes('sounds good')
+    );
+    
+    if (userAccepted) {
+      // Check if "anything else" was asked
+      const askedAnythingElse = assistantMessages.some(m => 
+        m.content.includes('Is there anything else I can help you with')
+      );
+      
+      if (askedAnythingElse) {
+        const userSaidNo = lastUserMessage && (
+          lastUserMessage.includes('no') ||
+          lastUserMessage.includes('nothing') ||
+          lastUserMessage.includes("i'm good") ||
+          lastUserMessage.includes("that's all")
+        );
+        
+        if (userSaidNo) {
+          return 'CONCLUDING';
+        }
+      }
+      
+      return 'AWAITING_GOAL_RESPONSE';
+    }
+    
+    return 'AWAITING_GOAL_RESPONSE';
+  }
+  
+  // Transition to goal proposal after 2-3 user messages
+  if (userMessages.length >= 2 && userMessages.length <= 4) {
+    return 'PROPOSING_GOAL';
+  }
+  
+  return 'COACHING';
+};
+
+export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<{
+  response: string;
+  aiState: AIState;
+  shouldShowEndChat: boolean;
+}> => {
+  const aiState = determineAIState(prompt.messages, prompt.context);
+  
   if (!isOpenAIConfigured || !openai) {
-    return getDemoResponse(prompt.messages, prompt.context);
+    const response = getDemoResponse(prompt.messages, { ...prompt.context, aiState });
+    return {
+      response,
+      aiState,
+      shouldShowEndChat: aiState === 'CONCLUDING'
+    };
   }
 
   try {
+    let systemPrompt = '';
+    
+    switch (aiState) {
+      case 'COACHING':
+        systemPrompt = COACHING_STATE_PROMPT;
+        break;
+      case 'PROPOSING_GOAL':
+        systemPrompt = PROPOSING_GOAL_STATE_PROMPT;
+        break;
+      case 'AWAITING_GOAL_RESPONSE':
+        systemPrompt = AWAITING_GOAL_RESPONSE_PROMPT;
+        break;
+      case 'CONCLUDING':
+        systemPrompt = CONCLUDING_STATE_PROMPT;
+        break;
+    }
+
     const messages = [
-      { role: 'system' as const, content: COACHING_PROMPT },
+      { role: 'system' as const, content: systemPrompt },
       ...prompt.messages
     ];
 
     if (prompt.context) {
-      const context = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}${
-        prompt.context.goalAlreadySet ? 'Goal already set this session. ' : ''
+      const contextMessage = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}Current AI State: ${aiState}. ${
+        prompt.context.userAcceptedGoal ? 'User accepted the goal. ' : ''
       }`;
-      messages.splice(1, 0, { role: 'system', content: context });
+      messages.splice(1, 0, { role: 'system', content: contextMessage });
     }
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages,
-      max_tokens: 150,
+      max_tokens: aiState === 'PROPOSING_GOAL' ? 80 : 120,
       temperature: 0.7,
     });
 
-    return response.choices[0]?.message?.content || "What's on your mind?";
+    const responseText = response.choices[0]?.message?.content || "What's on your mind?";
+    
+    return {
+      response: responseText,
+      aiState,
+      shouldShowEndChat: aiState === 'CONCLUDING'
+    };
   } catch (error) {
-    return handleError(error);
+    const errorResponse = handleError(error);
+    return {
+      response: errorResponse,
+      aiState,
+      shouldShowEndChat: false
+    };
   }
 };
 
@@ -262,3 +419,4 @@ Conversation Topics: ${userData.conversationTopics.join(', ')}
 };
 
 export { isOpenAIConfigured };
+export type { AIState };

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target } from 'lucide-react';
+import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
-import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
+import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
@@ -26,18 +26,23 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
+  // AI State Machine
+  const [aiState, setAiState] = useState<AIState>('COACHING');
+  const [goalProposed, setGoalProposed] = useState(false);
+  const [userAcceptedGoal, setUserAcceptedGoal] = useState(false);
+  
   // UI state
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true); // Default open
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true); // Default open
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
+  const [showEndChatButton, setShowEndChatButton] = useState(false);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
-  const [goalSetInSession, setGoalSetInSession] = useState(false);
   const [isConversationCompleted, setIsConversationCompleted] = useState(false);
   const [context, setContext] = useState<ConversationContext>({
     exploredOptions: [],
@@ -78,20 +83,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     try {
       console.log('Loading conversation:', conversationId);
       
-      // Fetch the conversation messages
       const conversationMessages = await getConversationMessages(conversationId);
       
-      // Update application state
       setActiveConversationMessages(conversationMessages);
       setCurrentConversationId(conversationId);
       setHasStartedSession(true);
       
-      // Analyze conversation state
-      const hasGoalMessage = conversationMessages.some(m => 
-        m.role === 'assistant' && 
-        m.content.toLowerCase().includes('can i set a small challenge for you')
-      );
-      setGoalSetInSession(hasGoalMessage || false);
+      // Analyze AI state from conversation
+      analyzeAIStateFromMessages(conversationMessages);
 
       // Check if conversation is completed
       const lastMessage = conversationMessages[conversationMessages.length - 1];
@@ -99,6 +98,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         (lastMessage.content.includes('Perfect! You\'re all set') || 
          lastMessage.content.includes('Good luck!'));
       setIsConversationCompleted(isCompleted);
+      setShowEndChatButton(isCompleted);
 
       // If loading a completed conversation, add a welcome back message
       if (isCompleted && conversationMessages.length > 0) {
@@ -111,9 +111,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         
         setActiveConversationMessages([...conversationMessages, welcomeBackMessage]);
         setCurrentlyTyping(welcomeBackMessage.id);
-        setIsConversationCompleted(false); // Allow continuation
+        setIsConversationCompleted(false);
+        setShowEndChatButton(false);
+        setAiState('COACHING');
         
-        // Save the welcome back message
         await saveMessage(conversationId, welcomeBackMessage);
         
         setTimeout(() => {
@@ -127,6 +128,55 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       console.log('Conversation loaded successfully with', conversationMessages.length, 'messages');
     } catch (error) {
       console.error('Error loading conversation:', error);
+    }
+  };
+
+  const analyzeAIStateFromMessages = (messages: Message[]) => {
+    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    const userMessages = messages.filter(m => m.role === 'user');
+    
+    // Check if goal was proposed
+    const goalProposedMsg = assistantMessages.find(m => 
+      m.content.includes('can I set a small challenge for you')
+    );
+    
+    if (goalProposedMsg) {
+      setGoalProposed(true);
+      
+      // Find user response after goal proposal
+      const goalMsgIndex = messages.findIndex(m => m.id === goalProposedMsg.id);
+      const userResponseAfterGoal = messages.slice(goalMsgIndex + 1).find(m => m.role === 'user');
+      
+      if (userResponseAfterGoal) {
+        const response = userResponseAfterGoal.content.toLowerCase();
+        const accepted = response.includes('yes') || response.includes('okay') || 
+                        response.includes('sure') || response.includes('sounds good');
+        setUserAcceptedGoal(accepted);
+        
+        if (accepted) {
+          // Check if "anything else" was asked
+          const anythingElseMsg = assistantMessages.find(m => 
+            m.content.includes('Is there anything else I can help you with')
+          );
+          
+          if (anythingElseMsg) {
+            setAiState('AWAITING_GOAL_RESPONSE');
+          } else {
+            setAiState('AWAITING_GOAL_RESPONSE');
+          }
+        } else {
+          setAiState('AWAITING_GOAL_RESPONSE');
+        }
+      } else {
+        setAiState('AWAITING_GOAL_RESPONSE');
+      }
+    } else {
+      // No goal proposed yet
+      if (userMessages.length >= 2) {
+        setAiState('PROPOSING_GOAL');
+      } else {
+        setAiState('COACHING');
+      }
     }
   };
 
@@ -145,23 +195,23 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
 
     try {
-      // Create new conversation
       const conversationId = await createConversation(user.id, greeting);
       setCurrentConversationId(conversationId);
       
-      // Save the initial message
       await saveMessage(conversationId, assistantMessage);
       
-      // Update state
+      // Reset all state for new conversation
       setActiveConversationMessages([assistantMessage]);
       setCurrentlyTyping(assistantMessage.id);
       setHasStartedSession(true);
-      setGoalSetInSession(false);
+      setGoalProposed(false);
+      setUserAcceptedGoal(false);
       setIsConversationCompleted(false);
+      setShowEndChatButton(false);
+      setAiState('COACHING');
       setInputText('');
       resetTranscript();
       
-      // Update daily streak
       await updateDailyStreak(user.id);
       
       setTimeout(() => {
@@ -213,48 +263,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  const generateGoalIfNeeded = async (messages: Message[], conversationId: string) => {
-    if (!user || goalSetInSession) return null;
-
-    const userMessages = messages.filter(m => m.role === 'user');
-    
-    // Generate goal after 2-4 user exchanges
-    if (userMessages.length >= 2 && userMessages.length <= 4) {
-      const conversationHistory = messages.map(m => `${m.role}: ${m.content}`).join('\n');
-      const generatedGoal = await generateGoalFromConversation(conversationHistory);
-      
-      if (generatedGoal) {
-        const goal = {
-          id: uuidv4(),
-          description: generatedGoal.description,
-          xpValue: generatedGoal.xpValue,
-          difficulty: generatedGoal.difficulty,
-          motivation: 7,
-          completed: false,
-          createdAt: new Date(),
-          deadline: new Date(Date.now() + (generatedGoal.timeframe === '24 hours' ? 86400000 : 
-                                         generatedGoal.timeframe === '3 days' ? 259200000 : 604800000))
-        };
-        
-        try {
-          await saveGoal(user.id, conversationId, goal);
-          setGoalSetInSession(true);
-        } catch (error) {
-          console.error('Error saving goal:', error);
-        }
-        
-        // SINGLE ACTION PRINCIPLE: Only return the goal proposition message
-        const goalMessage: Message = {
-          id: uuidv4(),
-          role: 'assistant',
-          content: `Based on what you've shared, can I set a small challenge for you? ${generatedGoal.description}`,
-          timestamp: new Date()
-        };
-        
-        return goalMessage;
-      }
-    }
-    return null;
+  const detectGoalInMessage = (content: string): boolean => {
+    return content.includes('can I set a small challenge for you');
   };
 
   const sendMessage = async (content: string, isVoice = false) => {
@@ -276,56 +286,34 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     resetTranscript();
 
     try {
-      // Save user message
       await saveMessage(currentConversationId, userMessage);
 
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
-      // Check if user is indicating they're done
+      // Analyze user response for state transitions
       const userResponse = content.toLowerCase().trim();
+      
+      // Check if user is indicating they're done (for AWAITING_GOAL_RESPONSE state)
       const isDone = userResponse === 'no' || 
                      userResponse.includes('no thanks') || 
                      userResponse.includes("i'm good") ||
                      userResponse.includes("that's all") ||
                      userResponse.includes('nothing else');
 
-      // If goal was set and user says they're done, conclude conversation
-      if (goalSetInSession && isDone) {
-        const conclusionMessage: Message = {
-          id: uuidv4(),
-          role: 'assistant',
-          content: "Perfect! You're all set. Take your time working on your challenge, and remember you can always come back here when you're ready to mark it complete or if you need any other support. Good luck!",
-          timestamp: new Date()
-        };
+      // Check if user accepted goal
+      const acceptedGoal = userResponse.includes('yes') || 
+                          userResponse.includes('okay') || 
+                          userResponse.includes('sure') || 
+                          userResponse.includes('sounds good');
 
-        const finalMessages = [...newMessages, conclusionMessage];
-        setActiveConversationMessages(finalMessages);
-        setCurrentlyTyping(conclusionMessage.id);
-
-        // Save conclusion message and mark conversation as completed
-        await saveMessage(currentConversationId, conclusionMessage);
-        await updateConversation(currentConversationId, { completed: true });
-        setIsConversationCompleted(true);
-
-        setTimeout(() => {
-          setCurrentlyTyping(null);
-          if (voiceEnabled && isElevenLabsConfigured) {
-            playCoachResponse(conclusionMessage.content);
-          }
-        }, conclusionMessage.content.length * 25);
-
-        setIsLoading(false);
-        return;
+      // Update state based on user response
+      if (aiState === 'AWAITING_GOAL_RESPONSE' && acceptedGoal && !userAcceptedGoal) {
+        setUserAcceptedGoal(true);
       }
 
-      // Check if user accepted the goal challenge
-      const userAcceptedGoal = goalSetInSession && 
-        (userResponse.includes('yes') || userResponse.includes('okay') || 
-         userResponse.includes('sure') || userResponse.includes('sounds good'));
-
-      // Generate AI response
-      const response = await generateCoachingResponse({
+      // Generate AI response using state machine
+      const aiResponse = await generateCoachingResponse({
         messages: newMessages.map(m => ({
           role: m.role,
           content: m.content
@@ -334,64 +322,71 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           userName: userProfile?.name,
           previousGoals: userProfile?.longTermGoals,
           currentStage: newContext.growStage,
-          goalAlreadySet: goalSetInSession
+          aiState,
+          goalProposed,
+          userAcceptedGoal: userAcceptedGoal || acceptedGoal
         }
       });
 
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: response,
+        content: aiResponse.response,
         timestamp: new Date()
       };
 
       let finalMessages = [...newMessages, assistantMessage];
 
-      // Try to generate a goal if conditions are met and no goal set yet
-      if (!goalSetInSession) {
-        const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
-        if (goalMessage) {
-          finalMessages = [...finalMessages, goalMessage];
+      // Handle goal detection and creation
+      if (detectGoalInMessage(aiResponse.response) && !goalProposed) {
+        setGoalProposed(true);
+        setAiState('AWAITING_GOAL_RESPONSE');
+        
+        // Create goal in database
+        try {
+          const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
+          const generatedGoal = await generateGoalFromConversation(conversationHistory);
+          
+          if (generatedGoal) {
+            const goal = {
+              id: uuidv4(),
+              description: generatedGoal.description,
+              xpValue: generatedGoal.xpValue,
+              difficulty: generatedGoal.difficulty,
+              motivation: 7,
+              completed: false,
+              createdAt: new Date(),
+              deadline: new Date(Date.now() + (generatedGoal.timeframe === '24 hours' ? 86400000 : 
+                                             generatedGoal.timeframe === '3 days' ? 259200000 : 604800000))
+            };
+            
+            await saveGoal(user.id, currentConversationId, goal);
+          }
+        } catch (error) {
+          console.error('Error creating goal:', error);
         }
-      }
-
-      // If user just accepted a goal, ask the follow-up question
-      if (userAcceptedGoal && goalSetInSession) {
-        const followUpMessage: Message = {
-          id: uuidv4(),
-          role: 'assistant',
-          content: "Is there anything else I can help you with today?",
-          timestamp: new Date()
-        };
-        finalMessages = [...finalMessages, followUpMessage];
+      } else {
+        // Update AI state based on response
+        setAiState(aiResponse.aiState);
+        setShowEndChatButton(aiResponse.shouldShowEndChat);
+        
+        if (aiResponse.shouldShowEndChat) {
+          setIsConversationCompleted(true);
+          await updateConversation(currentConversationId, { completed: true });
+        }
       }
 
       setActiveConversationMessages(finalMessages);
       setCurrentlyTyping(assistantMessage.id);
 
-      // Save all new messages
       await saveMessage(currentConversationId, assistantMessage);
-      
-      if (!goalSetInSession) {
-        const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
-        if (goalMessage) {
-          await saveMessage(currentConversationId, goalMessage);
-        }
-      }
-
-      if (userAcceptedGoal && goalSetInSession) {
-        const followUpMessage = finalMessages[finalMessages.length - 1];
-        if (followUpMessage.content.includes("Is there anything else")) {
-          await saveMessage(currentConversationId, followUpMessage);
-        }
-      }
 
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          await playCoachResponse(response);
+          await playCoachResponse(aiResponse.response);
         }
-      }, response.length * 25);
+      }, aiResponse.response.length * 25);
 
     } catch (error) {
       console.error('Error generating response:', error);
@@ -409,6 +404,24 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleEndChat = async () => {
+    if (currentConversationId) {
+      await updateConversation(currentConversationId, { completed: true });
+    }
+    
+    // Reset to start page
+    setHasStartedSession(false);
+    setActiveConversationMessages([]);
+    setCurrentConversationId(null);
+    setAiState('COACHING');
+    setGoalProposed(false);
+    setUserAcceptedGoal(false);
+    setIsConversationCompleted(false);
+    setShowEndChatButton(false);
+    setInputText('');
+    resetTranscript();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -523,14 +536,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             )}
             
             <div className="flex items-center space-x-1">
-              {isConversationCompleted && (
+              {showEndChatButton && (
                 <button
-                  onClick={handleNewConversation}
-                  className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300"
-                  title="Start new conversation"
+                  onClick={handleEndChat}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300"
+                  title="End conversation"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  <span className="text-xs font-medium">New Chat</span>
+                  <X className="w-4 h-4" />
+                  <span className="text-sm font-medium">End Chat</span>
                 </button>
               )}
 
@@ -682,7 +695,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           {isConversationCompleted && (
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Conversation completed! Start a new one to continue.</span>
+                <span className="text-sm font-medium">Conversation completed! Use "End Chat" to finish or continue talking.</span>
               </div>
             </div>
           )}
