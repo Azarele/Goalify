@@ -59,6 +59,34 @@ const mockConversations: Conversation[] = [
   },
 ];
 
+// Helper function to calculate daily streak
+const calculateDailyStreak = (lastActivity: string | null, currentStreak: number): number => {
+  if (!lastActivity) {
+    return 1; // First activity
+  }
+
+  const lastActivityDate = new Date(lastActivity);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  // Reset time to compare only dates
+  const lastActivityDateOnly = new Date(lastActivityDate.getFullYear(), lastActivityDate.getMonth(), lastActivityDate.getDate());
+  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const yesterdayDateOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+
+  if (lastActivityDateOnly.getTime() === todayDateOnly.getTime()) {
+    // Already active today, keep current streak
+    return currentStreak;
+  } else if (lastActivityDateOnly.getTime() === yesterdayDateOnly.getTime()) {
+    // Last activity was yesterday, increment streak
+    return currentStreak + 1;
+  } else {
+    // Last activity was more than a day ago, reset streak
+    return 1;
+  }
+};
+
 // User Profile Operations
 export const getUserProfile = async (userId: string): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
   const result = await safeSupabaseOperation(async () => {
@@ -116,6 +144,56 @@ export const updateUserProfile = async (userId: string, updates: UserProfileUpda
   if (result.isOffline) {
     return {
       data: { ...mockUserProfile, ...updates, user_id: userId },
+      error: null,
+      isOffline: true
+    };
+  }
+
+  return result;
+};
+
+export const updateDailyStreak = async (userId: string): Promise<{ data: UserProfile | null; error: any; isOffline?: boolean }> => {
+  const result = await safeSupabaseOperation(async () => {
+    // First get the current profile
+    const { data: profile, error: fetchError } = await supabase!
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError || !profile) {
+      throw fetchError || new Error('Profile not found');
+    }
+
+    // Calculate new streak
+    const newStreak = calculateDailyStreak(profile.last_activity, profile.daily_streak || 0);
+    const now = new Date().toISOString();
+
+    // Update the profile with new streak and last activity
+    return await supabase!
+      .from('user_profiles')
+      .update({
+        daily_streak: newStreak,
+        last_activity: now,
+        updated_at: now
+      })
+      .eq('user_id', userId)
+      .select()
+      .single();
+  });
+
+  // Return mock data if offline
+  if (result.isOffline) {
+    const currentProfile = { ...mockUserProfile, user_id: userId };
+    const newStreak = calculateDailyStreak(currentProfile.last_activity, currentProfile.daily_streak || 0);
+    
+    return {
+      data: {
+        ...currentProfile,
+        daily_streak: newStreak,
+        last_activity: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
       error: null,
       isOffline: true
     };
