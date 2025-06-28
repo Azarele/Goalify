@@ -10,12 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "lucide-react": "^0.344.0",
+    "openai": "^4.20.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.8.1",
-    "openai": "^4.20.1",
-    "@supabase/supabase-js": "^2.39.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
