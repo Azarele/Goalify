@@ -1,122 +1,113 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight } from 'lucide-react';
-import { CoachingSession, UserProfile } from '../types/coaching';
-import { getUserSessions } from '../services/database';
+import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus } from 'lucide-react';
+import { UserProfile } from '../types/coaching';
+import { getUserConversations, getConversationMessages } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
+
+interface Conversation {
+  id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+  completed: boolean;
+}
 
 interface SessionSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  currentSession: CoachingSession | null;
+  currentConversationId: string | null;
   userProfile: UserProfile | null;
-  onSessionSelect: (session: CoachingSession) => void;
+  onConversationSelect: (conversationId: string) => void;
+  onNewConversation: () => void;
 }
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   isOpen,
   onClose,
-  currentSession,
+  currentConversationId,
   userProfile,
-  onSessionSelect
+  onConversationSelect,
+  onNewConversation
 }) => {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPeriod, setFilterPeriod] = useState('all');
-  const [allSessions, setAllSessions] = useState<CoachingSession[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
-    loadSessions();
+    loadConversations();
   }, [user]);
 
-  const loadSessions = async () => {
+  const loadConversations = async () => {
     if (!user) {
-      setAllSessions([]);
+      setConversations([]);
       setLoading(false);
       return;
     }
 
     try {
-      const sessions = await getUserSessions(user.id);
-      setAllSessions(sessions);
+      const conversationsData = await getUserConversations(user.id);
+      setConversations(conversationsData);
     } catch (error) {
-      console.error('Error loading sessions:', error);
+      console.error('Error loading conversations:', error);
     } finally {
       setLoading(false);
     }
   };
   
-  const getSessionsByPeriod = () => {
+  const getConversationsByPeriod = () => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    let filteredSessions = allSessions;
+    let filteredConversations = conversations;
 
     // Apply search filter
     if (searchTerm) {
-      filteredSessions = filteredSessions.filter(session => {
-        const content = session.messages?.map(m => m.content).join(' ').toLowerCase() || '';
-        return content.includes(searchTerm.toLowerCase());
-      });
+      filteredConversations = filteredConversations.filter(conversation => 
+        conversation.title.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
 
     // Apply period filter
     if (filterPeriod !== 'all') {
       switch (filterPeriod) {
         case 'today':
-          filteredSessions = filteredSessions.filter(s => s.date >= today);
+          filteredConversations = filteredConversations.filter(c => c.updated_at >= today);
           break;
         case 'week':
-          filteredSessions = filteredSessions.filter(s => s.date >= weekAgo);
+          filteredConversations = filteredConversations.filter(c => c.updated_at >= weekAgo);
           break;
         case 'month':
-          filteredSessions = filteredSessions.filter(s => s.date >= monthAgo);
+          filteredConversations = filteredConversations.filter(c => c.updated_at >= monthAgo);
           break;
       }
     }
 
     return {
-      today: filteredSessions.filter(s => s.date >= today),
-      thisWeek: filteredSessions.filter(s => s.date >= weekAgo && s.date < today),
-      thisMonth: filteredSessions.filter(s => s.date >= monthAgo && s.date < weekAgo),
-      older: filteredSessions.filter(s => s.date < monthAgo)
+      today: filteredConversations.filter(c => c.updated_at >= today),
+      thisWeek: filteredConversations.filter(c => c.updated_at >= weekAgo && c.updated_at < today),
+      thisMonth: filteredConversations.filter(c => c.updated_at >= monthAgo && c.updated_at < weekAgo),
+      older: filteredConversations.filter(c => c.updated_at < monthAgo)
     };
   };
 
-  const sessionGroups = getSessionsByPeriod();
+  const conversationGroups = getConversationsByPeriod();
 
-  const getSessionPreview = (session: CoachingSession) => {
-    const userMessages = session.messages?.filter(m => m.role === 'user') || [];
-    const firstMessage = userMessages[0];
-    return firstMessage?.content.substring(0, 80) + '...' || 'No messages';
-  };
-
-  const getSessionTopic = (session: CoachingSession) => {
-    const userMessages = session.messages?.filter(m => m.role === 'user') || [];
-    const firstMessage = userMessages[0];
-    if (!firstMessage) return 'New Session';
-    
-    const content = firstMessage.content.toLowerCase();
-    if (content.includes('career')) return 'Career Development';
-    if (content.includes('relationship')) return 'Relationships';
-    if (content.includes('health') || content.includes('fitness')) return 'Health & Wellness';
-    if (content.includes('time') || content.includes('productivity')) return 'Time Management';
-    if (content.includes('confidence') || content.includes('self')) return 'Self-Development';
-    if (content.includes('stress') || content.includes('anxiety')) return 'Stress Management';
-    if (content.includes('goal') || content.includes('achieve')) return 'Goal Setting';
-    
-    return 'Personal Growth';
-  };
-
-  const handleSessionClick = (session: CoachingSession) => {
-    onSessionSelect(session);
+  const handleConversationClick = (conversation: Conversation) => {
+    onConversationSelect(conversation.id);
     onClose(); // Close sidebar on mobile after selection
   };
 
-  const SessionGroup = ({ title, sessions, icon }: { title: string; sessions: CoachingSession[]; icon: React.ReactNode }) => {
-    if (sessions.length === 0) return null;
+  const handleNewConversation = () => {
+    onNewConversation();
+    onClose(); // Close sidebar on mobile after starting new conversation
+  };
+
+  const ConversationGroup = ({ title, conversations, icon }: { title: string; conversations: Conversation[]; icon: React.ReactNode }) => {
+    if (conversations.length === 0) return null;
 
     return (
       <div className="mb-6">
@@ -124,46 +115,42 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           {icon}
           <h4 className="font-medium text-purple-200 text-sm">{title}</h4>
           <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-1 rounded-full">
-            {sessions.length}
+            {conversations.length}
           </span>
         </div>
         
         <div className="space-y-2">
-          {sessions.map((session) => (
+          {conversations.map((conversation) => (
             <div 
-              key={session.id}
-              onClick={() => handleSessionClick(session)}
+              key={conversation.id}
+              onClick={() => handleConversationClick(conversation)}
               className={`p-3 rounded-lg transition-all duration-300 cursor-pointer border group hover:scale-[1.02] ${
-                currentSession?.id === session.id
+                currentConversationId === conversation.id
                   ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-purple-400/30 shadow-lg'
                   : 'bg-slate-700/30 hover:bg-slate-600/40 border-slate-600/30 hover:border-purple-500/30'
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-white group-hover:text-purple-200 transition-colors">
-                  {getSessionTopic(session)}
+                <span className="text-sm font-medium text-white group-hover:text-purple-200 transition-colors line-clamp-1">
+                  {conversation.title}
                 </span>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-purple-300">
-                    {session.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <ArrowRight className="w-3 h-3 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
               </div>
               <div className="text-xs text-purple-400 mb-2">
-                {session.date.toLocaleDateString()}
+                {conversation.updated_at.toLocaleDateString()}
               </div>
-              <p className="text-xs text-gray-300 line-clamp-2 mb-2">
-                {getSessionPreview(session)}
-              </p>
               <div className="flex items-center justify-between text-xs text-purple-400">
-                <span>{session.messages?.length || 0} messages</span>
                 <span className={`px-2 py-1 rounded-full ${
-                  session.completed 
+                  conversation.completed 
                     ? 'bg-green-500/20 text-green-300' 
                     : 'bg-yellow-500/20 text-yellow-300'
                 }`}>
-                  {session.completed ? 'Complete' : 'In Progress'}
+                  {conversation.completed ? 'Complete' : 'In Progress'}
                 </span>
               </div>
             </div>
@@ -206,6 +193,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               </button>
             </div>
 
+            {/* New Conversation Button */}
+            <button
+              onClick={handleNewConversation}
+              className="w-full mb-4 py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Conversation</span>
+            </button>
+
             {/* Search */}
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-purple-400" />
@@ -234,37 +230,37 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </div>
 
             <div className="text-sm text-purple-300">
-              {allSessions.length} total sessions
+              {conversations.length} total conversations
             </div>
           </div>
 
-          {/* Sessions List */}
+          {/* Conversations List */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {loading ? (
               <div className="text-center py-8">
                 <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-purple-300">Loading sessions...</p>
+                <p className="text-purple-300">Loading conversations...</p>
               </div>
-            ) : allSessions.length > 0 ? (
+            ) : conversations.length > 0 ? (
               <>
-                <SessionGroup 
-                  title="Today's Sessions" 
-                  sessions={sessionGroups.today}
+                <ConversationGroup 
+                  title="Today's Conversations" 
+                  conversations={conversationGroups.today}
                   icon={<Clock className="w-4 h-4 text-green-400" />}
                 />
-                <SessionGroup 
+                <ConversationGroup 
                   title="Past Week" 
-                  sessions={sessionGroups.thisWeek}
+                  conversations={conversationGroups.thisWeek}
                   icon={<Calendar className="w-4 h-4 text-blue-400" />}
                 />
-                <SessionGroup 
+                <ConversationGroup 
                   title="Past Month" 
-                  sessions={sessionGroups.thisMonth}
+                  conversations={conversationGroups.thisMonth}
                   icon={<Calendar className="w-4 h-4 text-purple-400" />}
                 />
-                <SessionGroup 
+                <ConversationGroup 
                   title="Older" 
-                  sessions={sessionGroups.older}
+                  conversations={conversationGroups.older}
                   icon={<Calendar className="w-4 h-4 text-gray-400" />}
                 />
               </>
@@ -272,9 +268,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <div className="text-center py-8">
                 <MessageCircle className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
                 <h3 className="text-lg font-medium text-white mb-2">No conversations yet</h3>
-                <p className="text-purple-300 text-sm">
-                  Start your first coaching session to see your history here!
+                <p className="text-purple-300 text-sm mb-4">
+                  Start your first coaching conversation to see your history here!
                 </p>
+                <button
+                  onClick={handleNewConversation}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                >
+                  Start Your First Conversation
+                </button>
               </div>
             )}
           </div>

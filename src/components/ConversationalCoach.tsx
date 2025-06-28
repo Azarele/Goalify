@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { Message, CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
+import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { saveSession, saveGoal, updateDailyStreak } from '../services/database';
+import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { TypewriterText } from './TypewriterText';
 import { VoiceIndicator } from './VoiceIndicator';
@@ -14,16 +14,10 @@ import { GoalSidebar } from './GoalSidebar';
 import { StartConversationButton } from './StartConversationButton';
 
 interface ConversationalCoachProps {
-  session: CoachingSession | null;
-  onSessionStart: (session: CoachingSession) => void;
-  onSessionUpdate: (session: CoachingSession) => void;
   userProfile: UserProfile | null;
 }
 
 export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
-  session,
-  onSessionStart,
-  onSessionUpdate,
   userProfile
 }) => {
   const { user } = useAuth();
@@ -36,9 +30,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   const [hasStartedSession, setHasStartedSession] = useState(false);
-  const [messageCount, setMessageCount] = useState(0);
   const [goalSetInSession, setGoalSetInSession] = useState(false);
-  const [currentSession, setCurrentSession] = useState<CoachingSession | null>(null);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [isConversationCompleted, setIsConversationCompleted] = useState(false);
   const [context, setContext] = useState<ConversationContext>({
     exploredOptions: [],
     identifiedActions: [],
@@ -73,99 +67,67 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    if (session) {
-      loadSession(session);
-    }
-  }, [session]);
-
-  const loadSession = (sessionToLoad: CoachingSession) => {
-    setMessages(sessionToLoad.messages || []);
-    setCurrentSession(sessionToLoad);
-    setHasStartedSession(true);
-    setMessageCount(sessionToLoad.messages?.length || 0);
-    
-    // Check if a goal has already been set in this session
-    const hasGoalMessage = sessionToLoad.messages?.some(m => 
-      m.role === 'assistant' && 
-      m.content.toLowerCase().includes('can i set a small challenge for you')
-    );
-    setGoalSetInSession(hasGoalMessage || false);
-
-    // If loading a completed session, add a welcome back message
-    if (sessionToLoad.completed && sessionToLoad.messages && sessionToLoad.messages.length > 0) {
-      const welcomeBackMessage: Message = {
-        id: `welcome_${Date.now()}`,
-        role: 'assistant',
-        content: "Welcome back! I can see we had a great conversation here. Shall we continue where we left off, or would you like to explore something new today?",
-        timestamp: new Date()
-      };
-      
-      setMessages([...sessionToLoad.messages, welcomeBackMessage]);
-      setCurrentlyTyping(welcomeBackMessage.id);
-      
-      setTimeout(() => {
-        setCurrentlyTyping(null);
-        if (voiceEnabled && isElevenLabsConfigured) {
-          playCoachResponse(welcomeBackMessage.content);
-        }
-      }, welcomeBackMessage.content.length * 25);
-    }
-  };
-
-  const handleSessionSelect = (selectedSession: CoachingSession) => {
-    loadSession(selectedSession);
-    onSessionUpdate(selectedSession);
-  };
-
-  const createNewSession = (): CoachingSession => {
-    return {
-      id: uuidv4(),
-      date: new Date(),
-      messages: [],
-      goals: [],
-      insights: [],
-      actions: [],
-      completed: false
-    };
-  };
-
-  const handleStartConversation = async () => {
-    if (!user) return;
-
-    const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`
-      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`;
-    
-    const assistantMessage: Message = {
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: greeting,
-      timestamp: new Date()
-    };
-
-    const newSession = createNewSession();
-    newSession.messages = [assistantMessage];
-    
-    setMessages([assistantMessage]);
-    setCurrentSession(newSession);
-    setCurrentlyTyping(assistantMessage.id);
-    setHasStartedSession(true);
-    setGoalSetInSession(false);
-    onSessionStart(newSession);
-    
+  const loadConversation = async (conversationId: string) => {
     try {
-      await saveSession(user.id, newSession);
-    } catch (error) {
-      console.error('Error saving session:', error);
-    }
-    
-    setTimeout(() => {
-      setCurrentlyTyping(null);
-      if (voiceEnabled && isElevenLabsConfigured) {
-        playCoachResponse(greeting);
+      const conversationMessages = await getConversationMessages(conversationId);
+      setMessages(conversationMessages);
+      setCurrentConversationId(conversationId);
+      setHasStartedSession(true);
+      
+      // Check if a goal has already been set in this conversation
+      const hasGoalMessage = conversationMessages.some(m => 
+        m.role === 'assistant' && 
+        m.content.toLowerCase().includes('can i set a small challenge for you')
+      );
+      setGoalSetInSession(hasGoalMessage || false);
+
+      // Check if conversation is completed
+      const lastMessage = conversationMessages[conversationMessages.length - 1];
+      const isCompleted = lastMessage?.role === 'assistant' && 
+        (lastMessage.content.includes('Perfect! You\'re all set') || 
+         lastMessage.content.includes('Good luck!'));
+      setIsConversationCompleted(isCompleted);
+
+      // If loading a completed conversation, add a welcome back message
+      if (isCompleted && conversationMessages.length > 0) {
+        const welcomeBackMessage: Message = {
+          id: `welcome_${Date.now()}`,
+          role: 'assistant',
+          content: "Welcome back! I can see we had a great conversation here. Shall we continue where we left off, or would you like to explore something new today?",
+          timestamp: new Date()
+        };
+        
+        setMessages([...conversationMessages, welcomeBackMessage]);
+        setCurrentlyTyping(welcomeBackMessage.id);
+        setIsConversationCompleted(false); // Allow continuation
+        
+        // Save the welcome back message
+        await saveMessage(conversationId, welcomeBackMessage);
+        
+        setTimeout(() => {
+          setCurrentlyTyping(null);
+          if (voiceEnabled && isElevenLabsConfigured) {
+            playCoachResponse(welcomeBackMessage.content);
+          }
+        }, welcomeBackMessage.content.length * 25);
       }
-    }, greeting.length * 30);
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+    }
+  };
+
+  const handleConversationSelect = (conversationId: string) => {
+    loadConversation(conversationId);
+  };
+
+  const handleNewConversation = () => {
+    setMessages([]);
+    setCurrentConversationId(null);
+    setHasStartedSession(false);
+    setGoalSetInSession(false);
+    setIsConversationCompleted(false);
+    setInputText('');
+    resetTranscript();
   };
 
   const playCoachResponse = async (text: string) => {
@@ -206,7 +168,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  const generateGoalIfNeeded = async (messages: Message[], currentSession: CoachingSession) => {
+  const generateGoalIfNeeded = async (messages: Message[], conversationId: string) => {
     if (!user || goalSetInSession) return null;
 
     const userMessages = messages.filter(m => m.role === 'user');
@@ -218,7 +180,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       
       if (generatedGoal) {
         const goal = {
-          id: Date.now().toString(),
+          id: uuidv4(),
           description: generatedGoal.description,
           xpValue: generatedGoal.xpValue,
           difficulty: generatedGoal.difficulty,
@@ -230,14 +192,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         };
         
         try {
-          await saveGoal(user.id, currentSession.id, goal);
+          await saveGoal(user.id, conversationId, goal);
           setGoalSetInSession(true);
         } catch (error) {
           console.error('Error saving goal:', error);
         }
         
         const goalMessage: Message = {
-          id: (Date.now() + 2).toString(),
+          id: uuidv4(),
           role: 'assistant',
           content: `Based on what you've shared, can I set a small challenge for you? Here's what I'm thinking: "${generatedGoal.description}" - does this feel achievable and relevant to what we've been discussing?`,
           timestamp: new Date()
@@ -258,7 +220,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         lastMessage.content.toLowerCase().includes('can i set a small challenge for you')) {
       
       return {
-        id: (Date.now() + 3).toString(),
+        id: uuidv4(),
         role: 'assistant',
         content: "Is there anything else I can help you with today?",
         timestamp: new Date()
@@ -268,13 +230,55 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     return null;
   };
 
+  const handleStartConversation = async () => {
+    if (!user) return;
+
+    const greeting = userProfile?.name 
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`;
+    
+    const assistantMessage: Message = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: greeting,
+      timestamp: new Date()
+    };
+
+    try {
+      // Create new conversation
+      const conversationId = await createConversation(user.id, greeting);
+      setCurrentConversationId(conversationId);
+      
+      // Save the initial message
+      await saveMessage(conversationId, assistantMessage);
+      
+      setMessages([assistantMessage]);
+      setCurrentlyTyping(assistantMessage.id);
+      setHasStartedSession(true);
+      setGoalSetInSession(false);
+      setIsConversationCompleted(false);
+      
+      // Update daily streak
+      await updateDailyStreak(user.id);
+      
+      setTimeout(() => {
+        setCurrentlyTyping(null);
+        if (voiceEnabled && isElevenLabsConfigured) {
+          playCoachResponse(greeting);
+        }
+      }, greeting.length * 30);
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+    }
+  };
+
   const sendMessage = async (content: string, isVoice = false) => {
-    if (!content.trim() || isLoading || !user) return;
+    if (!content.trim() || isLoading || !user || !currentConversationId) return;
 
     setIsLoading(true);
     
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: uuidv4(),
       role: 'user',
       content: content.trim(),
       timestamp: new Date(),
@@ -285,19 +289,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setMessages(newMessages);
     setInputText('');
     resetTranscript();
-    setMessageCount(newMessages.length);
-
-    let sessionToUpdate = currentSession;
-    if (!sessionToUpdate) {
-      sessionToUpdate = createNewSession();
-      sessionToUpdate.messages = newMessages;
-      setCurrentSession(sessionToUpdate);
-      onSessionStart(sessionToUpdate);
-    } else {
-      sessionToUpdate.messages = newMessages;
-    }
 
     try {
+      // Save user message
+      await saveMessage(currentConversationId, userMessage);
+
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
@@ -311,7 +307,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       if (goalSetInSession && isDone) {
         const conclusionMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: uuidv4(),
           role: 'assistant',
           content: "Perfect! You're all set. Take your time working on your challenge, and remember you can always come back here when you're ready to mark it complete or if you need any other support. Good luck!",
           timestamp: new Date()
@@ -321,6 +317,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         setMessages(finalMessages);
         setCurrentlyTyping(conclusionMessage.id);
 
+        // Save conclusion message and mark conversation as completed
+        await saveMessage(currentConversationId, conclusionMessage);
+        await updateConversation(currentConversationId, { completed: true });
+        setIsConversationCompleted(true);
+
         setTimeout(() => {
           setCurrentlyTyping(null);
           if (voiceEnabled && isElevenLabsConfigured) {
@@ -328,14 +329,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           }
         }, conclusionMessage.content.length * 25);
 
-        const updatedSession = {
-          ...sessionToUpdate,
-          messages: finalMessages,
-          completed: true
-        };
-        setCurrentSession(updatedSession);
-        onSessionUpdate(updatedSession);
-        await saveSession(user.id, updatedSession);
         setIsLoading(false);
         return;
       }
@@ -354,7 +347,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       });
 
       const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: uuidv4(),
         role: 'assistant',
         content: response,
         timestamp: new Date()
@@ -363,7 +356,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       let finalMessages = [...newMessages, assistantMessage];
 
       // Try to generate a goal if conditions are met
-      const goalMessage = await generateGoalIfNeeded(finalMessages, sessionToUpdate);
+      const goalMessage = await generateGoalIfNeeded(finalMessages, currentConversationId);
       if (goalMessage) {
         finalMessages = [...finalMessages, goalMessage];
         
@@ -377,6 +370,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setMessages(finalMessages);
       setCurrentlyTyping(assistantMessage.id);
 
+      // Save all new messages
+      await saveMessage(currentConversationId, assistantMessage);
+      if (goalMessage) {
+        await saveMessage(currentConversationId, goalMessage);
+        const followUpMessage = generateFollowUpMessage(finalMessages);
+        if (followUpMessage) {
+          await saveMessage(currentConversationId, followUpMessage);
+        }
+      }
+
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
@@ -384,24 +387,19 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         }
       }, response.length * 25);
 
-      const updatedSession = {
-        ...sessionToUpdate,
-        messages: finalMessages
-      };
-      setCurrentSession(updatedSession);
-      onSessionUpdate(updatedSession);
-
-      await saveSession(user.id, updatedSession);
-
     } catch (error) {
       console.error('Error generating response:', error);
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: uuidv4(),
         role: 'assistant',
         content: "I'm having trouble connecting right now. Could you try again?",
         timestamp: new Date()
       };
       setMessages([...newMessages, errorMessage]);
+      
+      if (currentConversationId) {
+        await saveMessage(currentConversationId, errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -454,15 +452,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       <SessionSidebar 
         isOpen={leftSidebarOpen}
         onClose={() => setLeftSidebarOpen(false)}
-        currentSession={currentSession}
+        currentConversationId={currentConversationId}
         userProfile={userProfile}
-        onSessionSelect={handleSessionSelect}
+        onConversationSelect={handleConversationSelect}
+        onNewConversation={handleNewConversation}
       />
 
       <GoalSidebar 
         isOpen={rightSidebarOpen}
         onClose={() => setRightSidebarOpen(false)}
-        currentSession={currentSession}
+        currentSession={currentConversationId ? { id: currentConversationId, messages, goals: [], insights: [], actions: [], completed: isConversationCompleted, date: new Date() } : null}
         context={context}
         userProfile={userProfile}
       />
@@ -497,11 +496,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               </div>
             </div>
+
+            {userProfile && (
+              <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
+                <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
+                <span className="text-orange-200 text-xs">day streak</span>
+              </div>
+            )}
             
-            <div className="flex items-center space-x-2">
-              {currentSession?.completed && (
+            <div className="flex items-center space-x-1">
+              {isConversationCompleted && (
                 <button
-                  onClick={handleStartConversation}
+                  onClick={handleNewConversation}
                   className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300"
                   title="Start new conversation"
                 >
@@ -613,10 +619,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 className={`w-full p-4 pr-14 border-2 rounded-2xl bg-slate-700/50 text-white placeholder-purple-300 focus:ring-4 focus:ring-purple-500/30 focus:border-purple-400 transition-all duration-300 backdrop-blur-sm ${
                   isListening ? 'border-pink-400 bg-pink-500/10' : 'border-purple-500/30'
                 }`}
-                disabled={isLoading || isListening}
+                disabled={isLoading || isListening || isConversationCompleted}
               />
               
-              {speechSupported && (
+              {speechSupported && !isConversationCompleted && (
                 <button
                   type="button"
                   onClick={handleVoiceInput}
@@ -634,9 +640,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             
             <button
               type="submit"
-              disabled={!inputText.trim() || isLoading}
+              disabled={!inputText.trim() || isLoading || isConversationCompleted}
               className={`p-4 rounded-2xl font-medium transition-all duration-300 transform ${
-                inputText.trim() && !isLoading
+                inputText.trim() && !isLoading && !isConversationCompleted
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-500/25 hover:shadow-xl hover:scale-105'
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
               }`}
@@ -653,13 +659,21 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               </div>
             </div>
           )}
+
+          {isConversationCompleted && (
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
+                <span className="text-sm font-medium">Conversation completed! Start a new one to continue.</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <button
         onClick={() => setLeftSidebarOpen(true)}
         className="hidden lg:block fixed left-6 top-1/2 transform -translate-y-1/2 p-3 bg-gradient-to-br from-slate-800 to-purple-800 rounded-full shadow-lg border border-purple-500/20 hover:shadow-xl transition-all duration-300 hover:scale-110 z-10 backdrop-blur-sm"
-        title="📜 Session History"
+        title="📜 Conversation History"
       >
         <Menu className="w-5 h-5 text-purple-300" />
       </button>

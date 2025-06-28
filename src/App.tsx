@@ -10,14 +10,13 @@ import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
 import { useAuth } from './hooks/useAuth';
 import { getUserProfile, createUserProfile } from './services/database';
-import { CoachingSession, UserProfile } from './types/coaching';
+import { UserProfile } from './types/coaching';
 
 type AppView = 'coaching' | 'history' | 'progress' | 'settings';
 
 function MainApp() {
   const { user, loading, signOut } = useAuth();
   const [currentView, setCurrentView] = useState<AppView>('coaching');
-  const [currentSession, setCurrentSession] = useState<CoachingSession | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -50,21 +49,12 @@ function MainApp() {
     }
   };
 
-  const handleSessionStart = (session: CoachingSession) => {
-    setCurrentSession(session);
-  };
-
-  const handleSessionUpdate = (session: CoachingSession) => {
-    setCurrentSession(session);
-  };
-
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
   };
 
   const handleSignOut = async () => {
     await signOut();
-    setCurrentSession(null);
     setUserProfile(null);
   };
 
@@ -165,12 +155,7 @@ function MainApp() {
       case 'coaching':
         return (
           <div className="h-[calc(100vh-4rem)] relative">
-            <ConversationalCoach 
-              session={currentSession}
-              onSessionStart={handleSessionStart}
-              onSessionUpdate={handleSessionUpdate}
-              userProfile={userProfile}
-            />
+            <ConversationalCoach userProfile={userProfile} />
           </div>
         );
       case 'history':

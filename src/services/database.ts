@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { CoachingSession, Goal, UserProfile } from '../types/coaching';
+import { CoachingSession, Goal, UserProfile, Message } from '../types/coaching';
 
 // Helper function to check if Supabase is available
 const checkSupabase = () => {
@@ -8,6 +8,16 @@ const checkSupabase = () => {
     throw new Error('Supabase not configured');
   }
   return supabase;
+};
+
+// Generate conversation title from first user message
+const generateConversationTitle = (firstMessage: string): string => {
+  const words = firstMessage.trim().split(' ').slice(0, 6);
+  let title = words.join(' ');
+  if (firstMessage.length > title.length) {
+    title += '...';
+  }
+  return title || 'New Conversation';
 };
 
 // User Profile Operations
@@ -166,7 +176,161 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
   }
 };
 
-// Session Operations
+// Conversation Operations
+export const createConversation = async (userId: string, firstMessage: string): Promise<string> => {
+  try {
+    const client = checkSupabase();
+    
+    const title = generateConversationTitle(firstMessage);
+    
+    const { data, error } = await client
+      .from('conversations')
+      .insert({
+        user_id: userId,
+        title,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('Error creating conversation:', error);
+      throw error;
+    }
+
+    console.log('Conversation created successfully:', data.id);
+    return data.id;
+  } catch (error) {
+    console.error('Error in createConversation:', error);
+    throw error;
+  }
+};
+
+export const getUserConversations = async (userId: string): Promise<Array<{
+  id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+  completed: boolean;
+}>> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
+      .from('conversations')
+      .select('id, title, created_at, updated_at, completed')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching conversations:', error);
+      return [];
+    }
+
+    return (data || []).map(conv => ({
+      id: conv.id,
+      title: conv.title,
+      created_at: new Date(conv.created_at),
+      updated_at: new Date(conv.updated_at),
+      completed: conv.completed || false,
+    }));
+  } catch (error) {
+    console.error('Error in getUserConversations:', error);
+    return [];
+  }
+};
+
+export const getConversationMessages = async (conversationId: string): Promise<Message[]> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching messages:', error);
+      return [];
+    }
+
+    return (data || []).map(msg => ({
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+      timestamp: new Date(msg.created_at),
+      isVoice: msg.is_voice || false,
+    }));
+  } catch (error) {
+    console.error('Error in getConversationMessages:', error);
+    return [];
+  }
+};
+
+export const saveMessage = async (conversationId: string, message: Message): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    const { error } = await client
+      .from('messages')
+      .insert({
+        id: message.id,
+        conversation_id: conversationId,
+        role: message.role,
+        content: message.content,
+        is_voice: message.isVoice || false,
+      });
+
+    if (error) {
+      console.error('Error saving message:', error);
+      throw error;
+    }
+
+    // Update conversation's updated_at timestamp
+    await client
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId);
+
+    console.log('Message saved successfully');
+  } catch (error) {
+    console.error('Error in saveMessage:', error);
+    throw error;
+  }
+};
+
+export const updateConversation = async (conversationId: string, updates: {
+  completed?: boolean;
+  title?: string;
+}): Promise<void> => {
+  try {
+    const client = checkSupabase();
+    
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (updates.completed !== undefined) updateData.completed = updates.completed;
+    if (updates.title !== undefined) updateData.title = updates.title;
+
+    const { error } = await client
+      .from('conversations')
+      .update(updateData)
+      .eq('id', conversationId);
+
+    if (error) {
+      console.error('Error updating conversation:', error);
+      throw error;
+    }
+
+    console.log('Conversation updated successfully');
+  } catch (error) {
+    console.error('Error in updateConversation:', error);
+    throw error;
+  }
+};
+
+// Legacy Session Operations (for backward compatibility)
 export const saveSession = async (userId: string, session: CoachingSession): Promise<void> => {
   try {
     const client = checkSupabase();
