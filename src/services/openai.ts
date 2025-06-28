@@ -4,16 +4,22 @@ import OpenAI from 'openai';
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 const isOpenAIConfigured = Boolean(apiKey && apiKey.length > 20);
 
-// Log configuration status
+// Log configuration status with more details
 if (isOpenAIConfigured) {
   console.log('✅ OpenAI configured successfully');
+  console.log('🔑 API Key length:', apiKey.length);
+  console.log('🔑 API Key prefix:', apiKey.substring(0, 7) + '...');
 } else {
   console.log('⚠️ OpenAI not configured - using demo responses');
+  console.log('🔑 API Key present:', Boolean(apiKey));
+  console.log('🔑 API Key length:', apiKey?.length || 0);
 }
 
 const openai = isOpenAIConfigured ? new OpenAI({
   apiKey,
-  dangerouslyAllowBrowser: true
+  dangerouslyAllowBrowser: true,
+  timeout: 30000, // 30 second timeout
+  maxRetries: 2, // Retry failed requests
 }) : null;
 
 export interface CoachingPrompt {
@@ -123,6 +129,45 @@ const getDemoResponse = (messages: any[], context?: any): string => {
   return demoResponses[Math.min(messageCount - 1, demoResponses.length - 1)] || demoResponses[0];
 };
 
+// Enhanced error handling function
+const handleOpenAIError = (error: any): string => {
+  console.error('OpenAI API detailed error:', {
+    message: error.message,
+    status: error.status,
+    code: error.code,
+    type: error.type,
+    stack: error.stack
+  });
+
+  // Check for specific error types
+  if (error.status === 401) {
+    console.error('❌ OpenAI Authentication Error - Check your API key');
+    return "I'm having trouble connecting right now. Please check your OpenAI API key configuration.";
+  }
+  
+  if (error.status === 429) {
+    console.error('❌ OpenAI Rate Limit Error - Too many requests');
+    return "I'm receiving too many requests right now. Please wait a moment and try again.";
+  }
+  
+  if (error.status === 402) {
+    console.error('❌ OpenAI Billing Error - Insufficient credits');
+    return "There seems to be a billing issue with the OpenAI account. Please check your credits.";
+  }
+  
+  if (error.status >= 500) {
+    console.error('❌ OpenAI Server Error - Service temporarily unavailable');
+    return "OpenAI's servers are temporarily unavailable. Please try again in a moment.";
+  }
+  
+  if (error.message?.includes('fetch')) {
+    console.error('❌ Network Error - Connection failed');
+    return "I'm having trouble connecting right now. Please check your internet connection.";
+  }
+
+  return "I'm having trouble connecting right now. Could you try again?";
+};
+
 export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<string> => {
   if (!isOpenAIConfigured || !openai) {
     console.log('Using demo response (OpenAI not configured)');
@@ -130,6 +175,8 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
   }
 
   try {
+    console.log('🤖 Sending request to OpenAI...');
+    
     const messages = [
       { role: 'system' as const, content: COACHING_SYSTEM_PROMPT },
       ...prompt.messages
@@ -152,10 +199,11 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
       temperature: 0.7,
     });
 
+    console.log('✅ OpenAI response received successfully');
     return response.choices[0]?.message?.content || "What's on your mind today?";
   } catch (error) {
-    console.error('OpenAI API error:', error);
-    return getDemoResponse(prompt.messages, prompt.context);
+    const fallbackResponse = handleOpenAIError(error);
+    return fallbackResponse;
   }
 };
 
@@ -176,6 +224,8 @@ export const generateGoalFromConversation = async (conversationHistory: string):
   }
 
   try {
+    console.log('🎯 Generating goal from conversation...');
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -214,8 +264,10 @@ Examples:
     const content = response.choices[0]?.message?.content;
     if (content) {
       try {
+        console.log('✅ Goal generated successfully');
         return JSON.parse(content);
-      } catch {
+      } catch (parseError) {
+        console.error('❌ Failed to parse goal JSON:', parseError);
         return null;
       }
     }
@@ -242,6 +294,8 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
   }
 
   try {
+    console.log('✅ Verifying goal completion...');
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -272,6 +326,8 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
     const feedback = lines.slice(1).join(' ').trim() || 
       (verified ? "Great work completing this challenge!" : "Please provide more detail about your completion.");
 
+    console.log('✅ Goal verification completed:', verified ? 'Verified' : 'Unverified');
+    
     return {
       verified,
       feedback
