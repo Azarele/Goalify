@@ -461,7 +461,7 @@ export const getSession = async (userId: string, sessionId: string): Promise<Coa
   }
 };
 
-// Goal Operations
+// CRITICAL: Enhanced Goal Operations with Local Storage Fallback
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   try {
     const client = checkSupabase();
@@ -495,7 +495,18 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
     console.log('Goal saved successfully');
   } catch (error) {
     console.error('Error in saveGoal:', error);
-    throw error;
+    // Fallback to local storage for demo mode
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
+    
+    if (goalIndex >= 0) {
+      localGoals[goalIndex] = goal;
+    } else {
+      localGoals.push(goal);
+    }
+    
+    localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
+    console.log('Goal saved to local storage as fallback');
   }
 };
 
@@ -529,7 +540,9 @@ export const getSessionGoals = async (userId: string, sessionId: string): Promis
     }));
   } catch (error) {
     console.error('Error in getSessionGoals:', error);
-    return [];
+    // Fallback to local storage
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    return localGoals.filter((goal: any) => goal.sessionId === sessionId);
   }
 };
 
@@ -562,7 +575,45 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
     }));
   } catch (error) {
     console.error('Error in getUserGoals:', error);
-    return [];
+    // Fallback to local storage
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    return localGoals;
+  }
+};
+
+// CRITICAL: New function to get all user goals across all sessions
+export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
+  try {
+    const client = checkSupabase();
+    
+    const { data, error } = await client
+      .from('goals')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      handleSupabaseError(error, 'getAllUserGoals');
+      return [];
+    }
+
+    return (data || []).map(goal => ({
+      id: goal.id,
+      description: goal.description,
+      xpValue: goal.xp_value || 50,
+      difficulty: goal.difficulty || 'medium',
+      motivation: goal.motivation || 5,
+      completed: goal.completed || false,
+      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
+      completionReasoning: goal.completion_reasoning || undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
+      createdAt: new Date(goal.created_at),
+    }));
+  } catch (error) {
+    console.error('Error in getAllUserGoals:', error);
+    // Fallback to local storage
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    return localGoals;
   }
 };
 

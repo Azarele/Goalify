@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame } from 'lucide-react';
-import { getUserSessions, getUserGoals } from '../services/database';
+import { getUserSessions, getUserConversations } from '../services/database';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
+import { useGoals } from '../hooks/useGoals';
 
 interface ProgressDashboardProps {
   userProfile: UserProfile | null;
@@ -10,8 +11,9 @@ interface ProgressDashboardProps {
 
 export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfile }) => {
   const { user } = useAuth();
+  const { goals, loading: goalsLoading, getGoalStats } = useGoals();
   const [sessions, setSessions] = useState<any[]>([]);
-  const [goals, setGoals] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,13 +27,13 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     }
 
     try {
-      const [sessionsData, goalsData] = await Promise.all([
+      const [sessionsData, conversationsData] = await Promise.all([
         getUserSessions(user.id),
-        getUserGoals(user.id)
+        getUserConversations(user.id)
       ]);
       
       setSessions(sessionsData);
-      setGoals(goalsData);
+      setConversations(conversationsData);
     } catch (error) {
       console.error('Error loading progress data:', error);
     } finally {
@@ -39,10 +41,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     }
   };
 
-  const completedGoals = goals.filter(g => g.completed);
-  const pendingGoals = goals.filter(g => !g.completed);
-  const overdue = goals.filter(g => !g.completed && g.deadline && g.deadline < new Date());
-
+  const goalStats = getGoalStats();
   const totalXP = userProfile?.totalXP || 0;
   const currentLevel = userProfile?.level || 1;
   const dailyStreak = userProfile?.dailyStreak || 0;
@@ -54,7 +53,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     
     const recentSessions = sessions.filter(s => s.date > lastWeek);
     const recentGoals = goals.filter(g => g.createdAt > lastWeek);
-    const recentCompletions = completedGoals.filter(g => g.completedAt && g.completedAt > lastWeek);
+    const recentCompletions = goals.filter(g => g.completed && g.completedAt && g.completedAt > lastWeek);
     
     return {
       sessions: recentSessions.length,
@@ -77,13 +76,13 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
   const getAchievements = () => {
     const achievements = [];
     
-    if (completedGoals.length >= 1) {
+    if (goalStats.completed >= 1) {
       achievements.push({ title: "First Steps", icon: "🎯", description: "Completed your first goal" });
     }
-    if (completedGoals.length >= 5) {
+    if (goalStats.completed >= 5) {
       achievements.push({ title: "Goal Getter", icon: "⭐", description: "Completed 5 goals" });
     }
-    if (completedGoals.length >= 10) {
+    if (goalStats.completed >= 10) {
       achievements.push({ title: "Achiever", icon: "🏆", description: "Completed 10 goals" });
     }
     if (currentLevel >= 5) {
@@ -101,7 +100,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
 
   const achievements = getAchievements();
 
-  if (loading) {
+  if (loading || goalsLoading) {
     return (
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="text-center">
@@ -163,7 +162,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
               <Calendar className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-white">{sessions.length}</p>
+              <p className="text-2xl font-bold text-white">{conversations.length}</p>
               <p className="text-sm text-purple-300">Total Sessions</p>
             </div>
           </div>
@@ -175,7 +174,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
               <CheckCircle className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-white">{completedGoals.length}</p>
+              <p className="text-2xl font-bold text-white">{goalStats.completed}</p>
               <p className="text-sm text-purple-300">Goals Completed</p>
             </div>
           </div>
@@ -199,9 +198,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
               <Target className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-white">
-                {goals.length > 0 ? Math.round((completedGoals.length / goals.length) * 100) : 0}%
-              </p>
+              <p className="text-2xl font-bold text-white">{goalStats.completionRate}%</p>
               <p className="text-sm text-purple-300">Success Rate</p>
             </div>
           </div>
@@ -273,9 +270,9 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
           </div>
           
           <div className="p-6">
-            {pendingGoals.length > 0 ? (
+            {goalStats.pending > 0 ? (
               <div className="space-y-3">
-                {pendingGoals.slice(0, 5).map((goal) => (
+                {goals.filter(g => !g.completed).slice(0, 5).map((goal) => (
                   <div key={goal.id} className="flex items-start space-x-3 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{goal.description}</p>
@@ -310,9 +307,9 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
           </div>
           
           <div className="p-6">
-            {completedGoals.length > 0 ? (
+            {goalStats.completed > 0 ? (
               <div className="space-y-3">
-                {completedGoals.slice(0, 5).map((goal) => (
+                {goals.filter(g => g.completed).slice(0, 5).map((goal) => (
                   <div key={goal.id} className="flex items-start space-x-3 p-3 bg-green-500/10 rounded-lg border border-green-500/20">
                     <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
                     <div className="flex-1">
@@ -338,17 +335,17 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
       </div>
 
       {/* Overdue Alert */}
-      {overdue.length > 0 && (
+      {goalStats.overdue > 0 && (
         <div className="bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 rounded-xl p-6 backdrop-blur-sm">
           <div className="flex items-center space-x-2 mb-3">
             <Target className="w-5 h-5 text-red-400" />
             <h3 className="font-semibold text-red-300">Overdue Goals</h3>
           </div>
           <p className="text-red-200 text-sm mb-3">
-            You have {overdue.length} overdue goal{overdue.length > 1 ? 's' : ''}. Consider revisiting these in your next coaching session.
+            You have {goalStats.overdue} overdue goal{goalStats.overdue > 1 ? 's' : ''}. Consider revisiting these in your next coaching session.
           </p>
           <div className="space-y-2">
-            {overdue.map((goal) => (
+            {goals.filter(g => !g.completed && g.deadline && g.deadline < new Date()).map((goal) => (
               <div key={goal.id} className="text-sm text-red-300 bg-red-500/10 p-2 rounded">
                 • {goal.description} (Due: {goal.deadline?.toLocaleDateString()})
               </div>

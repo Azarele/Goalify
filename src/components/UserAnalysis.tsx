@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame, Brain, Activity } from 'lucide-react';
-import { getUserSessions, getUserGoals, getUserConversations } from '../services/database';
+import { getUserSessions, getUserConversations } from '../services/database';
 import { generateUserAnalysis } from '../services/openai';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
+import { useGoals } from '../hooks/useGoals';
 
 interface UserAnalysisProps {
   userProfile: UserProfile | null;
@@ -26,32 +27,33 @@ interface AnalysisData {
 
 export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
   const { user } = useAuth();
+  const { goals, loading: goalsLoading, getGoalStats } = useGoals();
+  const [conversations, setConversations] = useState<any[]>([]);
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadAnalysisData();
-  }, [user]);
+  }, [user, goals]);
 
   const loadAnalysisData = async () => {
-    if (!user) {
+    if (!user || goalsLoading) {
       setLoading(false);
       return;
     }
 
     try {
-      const [conversations, goals] = await Promise.all([
-        getUserConversations(user.id),
-        getUserGoals(user.id)
-      ]);
+      const conversationsData = await getUserConversations(user.id);
+      setConversations(conversationsData);
 
       // Process data for analysis
+      const goalStats = getGoalStats();
       const completedGoals = goals.filter(g => g.completed);
       const recentGoals = goals.slice(0, 10);
       
       // Generate conversation topics (simplified)
-      const topics = conversations.map(c => {
+      const topics = conversationsData.map(c => {
         const title = c.title.toLowerCase();
         if (title.includes('career')) return 'Career';
         if (title.includes('health') || title.includes('fitness')) return 'Health';
@@ -67,23 +69,10 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
       // Generate streak history (simplified)
       const streakHistory = generateStreakHistory();
 
-      // Goals by difficulty
-      const goalsByDifficulty = {
-        easy: goals.filter(g => g.difficulty === 'easy').length,
-        medium: goals.filter(g => g.difficulty === 'medium').length,
-        hard: goals.filter(g => g.difficulty === 'hard').length,
-      };
-
-      const completionByDifficulty = {
-        easy: completedGoals.filter(g => g.difficulty === 'easy').length,
-        medium: completedGoals.filter(g => g.difficulty === 'medium').length,
-        hard: completedGoals.filter(g => g.difficulty === 'hard').length,
-      };
-
       const data: AnalysisData = {
-        totalGoals: goals.length,
-        completedGoals: completedGoals.length,
-        totalConversations: conversations.length,
+        totalGoals: goalStats.total,
+        completedGoals: goalStats.completed,
+        totalConversations: conversationsData.length,
         dailyStreak: userProfile?.dailyStreak || 0,
         level: userProfile?.level || 1,
         totalXP: userProfile?.totalXP || 0,
@@ -96,8 +85,8 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
         conversationTopics: [...new Set(topics)],
         weeklyActivity,
         streakHistory,
-        goalsByDifficulty,
-        completionByDifficulty
+        goalsByDifficulty: goalStats.goalsByDifficulty,
+        completionByDifficulty: goalStats.completionByDifficulty
       };
 
       setAnalysisData(data);
@@ -180,7 +169,7 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
       .map(([topic, count]) => ({ topic, count }));
   };
 
-  if (loading) {
+  if (loading || goalsLoading) {
     return (
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="text-center">

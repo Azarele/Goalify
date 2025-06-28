@@ -9,6 +9,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
 import { useAuth } from './hooks/useAuth';
+import { useGoals } from './hooks/useGoals';
 import { getUserProfile, createUserProfile } from './services/database';
 import { UserProfile } from './types/coaching';
 
@@ -16,6 +17,7 @@ type AppView = 'coaching' | 'progress' | 'analysis' | 'settings';
 
 function MainApp() {
   const { user, loading, signOut } = useAuth();
+  const { goals, loadGoals } = useGoals();
   const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<AppView>('coaching');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -30,6 +32,13 @@ function MainApp() {
       setProfileLoading(false);
     }
   }, [user]);
+
+  // Reload goals when user profile changes (for XP updates)
+  useEffect(() => {
+    if (user && userProfile) {
+      loadGoals();
+    }
+  }, [user, userProfile?.totalXP]);
 
   const loadUserProfile = async () => {
     if (!user) return;
@@ -62,6 +71,10 @@ function MainApp() {
   const handleLogoClick = () => {
     setCurrentView('coaching');
     navigate('/');
+  };
+
+  const handleProfileUpdate = (updatedProfile: UserProfile) => {
+    setUserProfile(updatedProfile);
   };
 
   if (loading || profileLoading) {
@@ -114,10 +127,25 @@ function MainApp() {
           </div>
 
           {userProfile && (
-            <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
-              <Flame className="w-4 h-4 text-orange-400" />
-              <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
-              <span className="text-orange-200 text-xs">day streak</span>
+            <div className="hidden md:flex items-center space-x-4">
+              {/* Level Display */}
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-1 rounded-full border border-yellow-500/30">
+                <span className="text-yellow-300 font-medium text-sm">Level {userProfile.level || 1}</span>
+                <span className="text-yellow-200 text-xs">{userProfile.totalXP || 0} XP</span>
+              </div>
+              
+              {/* Streak Display */}
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
+                <Flame className="w-4 h-4 text-orange-400" />
+                <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
+                <span className="text-orange-200 text-xs">day streak</span>
+              </div>
+              
+              {/* Goals Count */}
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-3 py-1 rounded-full border border-purple-500/30">
+                <span className="text-purple-300 font-medium text-sm">{goals.filter(g => g.completed).length}/{goals.length}</span>
+                <span className="text-purple-200 text-xs">goals</span>
+              </div>
             </div>
           )}
           
@@ -166,7 +194,7 @@ function MainApp() {
       case 'coaching':
         return (
           <div className="h-[calc(100vh-4rem)] relative">
-            <ConversationalCoach userProfile={userProfile} />
+            <ConversationalCoach userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
           </div>
         );
       case 'progress':
@@ -184,7 +212,7 @@ function MainApp() {
       case 'settings':
         return (
           <div className="max-w-6xl mx-auto px-4 py-8">
-            <Settings userProfile={userProfile} onProfileUpdate={setUserProfile} />
+            <Settings userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
           </div>
         );
       default:
