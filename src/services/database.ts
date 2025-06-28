@@ -215,6 +215,8 @@ export const getUserConversations = async (userId: string): Promise<Array<{
   try {
     const client = checkSupabase();
     
+    console.log('Fetching conversations for user:', userId);
+    
     const { data, error } = await client
       .from('conversations')
       .select('id, title, created_at, updated_at, completed')
@@ -225,6 +227,8 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       console.error('Error fetching conversations:', error);
       return [];
     }
+
+    console.log('Fetched conversations:', data?.length || 0);
 
     return (data || []).map(conv => ({
       id: conv.id,
@@ -243,6 +247,8 @@ export const getConversationMessages = async (conversationId: string): Promise<M
   try {
     const client = checkSupabase();
     
+    console.log('Fetching messages for conversation:', conversationId);
+    
     const { data, error } = await client
       .from('messages')
       .select('*')
@@ -253,6 +259,8 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       console.error('Error fetching messages:', error);
       return [];
     }
+
+    console.log('Fetched messages:', data?.length || 0);
 
     return (data || []).map(msg => ({
       id: msg.id,
@@ -270,6 +278,8 @@ export const getConversationMessages = async (conversationId: string): Promise<M
 export const saveMessage = async (conversationId: string, message: Message): Promise<void> => {
   try {
     const client = checkSupabase();
+    
+    console.log('Saving message to conversation:', conversationId);
     
     const { error } = await client
       .from('messages')

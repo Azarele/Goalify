@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
-import { getUserConversations, getConversationMessages } from '../services/database';
+import { getUserConversations } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 
 interface Conversation {
@@ -49,6 +49,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     try {
       const conversationsData = await getUserConversations(user.id);
       setConversations(conversationsData);
+      console.log('Loaded conversations:', conversationsData.length);
     } catch (error) {
       console.error('Error loading conversations:', error);
     } finally {
@@ -96,14 +97,26 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
   const conversationGroups = getConversationsByPeriod();
 
-  const handleConversationClick = (conversation: Conversation) => {
-    onConversationSelect(conversation.id);
-    onClose(); // Close sidebar on mobile after selection
+  const handleConversationClick = async (conversation: Conversation) => {
+    console.log('Conversation clicked:', conversation.id, conversation.title);
+    
+    // Step 2: Handle the User Click Event - pass conversation ID to parent
+    await onConversationSelect(conversation.id);
+    
+    // Close sidebar on mobile after selection
+    if (window.innerWidth < 1024) {
+      onClose();
+    }
   };
 
   const handleNewConversation = () => {
+    console.log('Starting new conversation');
     onNewConversation();
-    onClose(); // Close sidebar on mobile after starting new conversation
+    
+    // Close sidebar on mobile after starting new conversation
+    if (window.innerWidth < 1024) {
+      onClose();
+    }
   };
 
   const ConversationGroup = ({ title, conversations, icon }: { title: string; conversations: Conversation[]; icon: React.ReactNode }) => {
@@ -126,32 +139,37 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => handleConversationClick(conversation)}
               className={`p-3 rounded-lg transition-all duration-300 cursor-pointer border group hover:scale-[1.02] ${
                 currentConversationId === conversation.id
-                  ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-purple-400/30 shadow-lg'
+                  ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 border-purple-400/50 shadow-lg ring-2 ring-purple-400/30'
                   : 'bg-slate-700/30 hover:bg-slate-600/40 border-slate-600/30 hover:border-purple-500/30'
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-white group-hover:text-purple-200 transition-colors line-clamp-1">
+                <span className="text-sm font-medium text-white group-hover:text-purple-200 transition-colors line-clamp-1 flex-1 mr-2">
                   {conversation.title}
                 </span>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 flex-shrink-0">
                   <span className="text-xs text-purple-300">
                     {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  <ArrowRight className="w-3 h-3 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <ArrowRight className={`w-3 h-3 text-purple-400 transition-all duration-200 ${
+                    currentConversationId === conversation.id ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover:opacity-100'
+                  }`} />
                 </div>
               </div>
               <div className="text-xs text-purple-400 mb-2">
                 {conversation.updated_at.toLocaleDateString()}
               </div>
-              <div className="flex items-center justify-between text-xs text-purple-400">
-                <span className={`px-2 py-1 rounded-full ${
+              <div className="flex items-center justify-between text-xs">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                   conversation.completed 
-                    ? 'bg-green-500/20 text-green-300' 
-                    : 'bg-yellow-500/20 text-yellow-300'
+                    ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
+                    : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
                 }`}>
                   {conversation.completed ? 'Complete' : 'In Progress'}
                 </span>
+                {currentConversationId === conversation.id && (
+                  <span className="text-xs text-purple-300 font-medium">Active</span>
+                )}
               </div>
             </div>
           ))}
