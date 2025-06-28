@@ -329,6 +329,22 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         const generatedGoal = await generateGoalFromConversation(conversationHistory);
         
         if (generatedGoal) {
+          // Calculate deadline based on timeframe
+          let deadline = new Date();
+          switch (generatedGoal.timeframe) {
+            case '24 hours':
+              deadline.setHours(deadline.getHours() + 24);
+              break;
+            case '3 days':
+              deadline.setDate(deadline.getDate() + 3);
+              break;
+            case '1 week':
+              deadline.setDate(deadline.getDate() + 7);
+              break;
+            default:
+              deadline.setDate(deadline.getDate() + 3); // Default to 3 days
+          }
+
           const goal = {
             id: uuidv4(),
             description: pendingGoal.description,
@@ -337,10 +353,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             motivation: 7,
             completed: false,
             createdAt: new Date(),
-            deadline: new Date(Date.now() + (generatedGoal.timeframe === '24 hours' ? 86400000 : 
-                                           generatedGoal.timeframe === '3 days' ? 259200000 : 604800000))
+            deadline: deadline
           };
           
+          // Save goal to database
           await saveGoal(user.id, currentConversationId, goal);
           console.log(`✅ Goal accepted and created:`, goal.description);
           
@@ -350,7 +366,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           setUserAcceptedGoal(true);
           setUserDeclinedGoal(false);
           
-          // Force refresh of goals in sidebar
+          // CRITICAL: Force refresh of goals in sidebar by updating context
           setContext(prev => ({ ...prev, lastGoalCreated: Date.now() }));
         }
       } else {

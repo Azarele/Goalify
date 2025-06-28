@@ -78,6 +78,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
         createdAt: dbGoal.createdAt
       }));
       setGoals(transformedGoals);
+      console.log('Loaded goals for session:', currentSession.id, transformedGoals.length);
     } catch (error) {
       console.error('Error loading goals:', error);
     }
