@@ -4,16 +4,22 @@ import OpenAI from 'openai';
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 const isOpenAIConfigured = Boolean(apiKey && apiKey.length > 20);
 
-// Log configuration status
+// Log configuration status with more details
 if (isOpenAIConfigured) {
   console.log('✅ OpenAI configured successfully');
+  console.log('🔑 API Key length:', apiKey.length);
+  console.log('🔑 API Key prefix:', apiKey.substring(0, 7) + '...');
 } else {
   console.log('⚠️ OpenAI not configured - using demo responses');
+  console.log('🔑 API Key present:', Boolean(apiKey));
+  console.log('🔑 API Key length:', apiKey?.length || 0);
 }
 
 const openai = isOpenAIConfigured ? new OpenAI({
   apiKey,
-  dangerouslyAllowBrowser: true
+  dangerouslyAllowBrowser: true,
+  timeout: 30000, // 30 second timeout
+  maxRetries: 2, // Retry failed requests
 }) : null;
 
 export interface CoachingPrompt {
@@ -26,6 +32,7 @@ export interface CoachingPrompt {
     previousGoals?: string[];
     currentStage?: string;
     sessionHistory?: string;
+    goalAlreadySet?: boolean;
   };
 }
 
@@ -44,11 +51,11 @@ CRITICAL COACHING BEHAVIOR:
 - Ask questions like: "What do you think about that?" "How does that feel?" "What would happen if...?"
 - Reflect: "I hear you saying..." "It sounds like..." "What I'm noticing is..."
 
-GOAL GENERATION:
-After 3-4 exchanges, identify what the user is struggling with or wants to achieve. Then say:
+GOAL GENERATION FLOW:
+After 2-4 user exchanges, identify what the user is struggling with or wants to achieve. Then say:
 "Based on what you've shared, can I set a small challenge for you?"
 
-Generate 1-2 specific, measurable goals with:
+Generate 1 specific, measurable goal with:
 - Clear action (what exactly to do)
 - Time limit (24 hours, 3 days, 1 week max)
 - Success criteria (how they'll know it's done)
@@ -57,6 +64,12 @@ Examples:
 "Draft your CV and send it to 1 person for feedback within 48 hours"
 "Spend 30 minutes tomorrow researching remote job platforms"
 "Have one difficult conversation you've been avoiding by Friday"
+
+AFTER SETTING A GOAL:
+Your ONLY follow-up question must be: "Is there anything else I can help you with today?"
+Do NOT ask any other coaching questions at this stage.
+
+If the user says "no" or indicates they are finished, conclude gracefully with encouragement.
 
 CONVERSATION STYLE:
 - Natural, warm, curious
@@ -67,7 +80,10 @@ CONVERSATION STYLE:
 
 Remember: You're a thinking partner. They have the answers - you help them find them.`;
 
-const VERIFICATION_SYSTEM_PROMPT = `You are a goal completion verifier. Your job is to determine if a user has legitimately completed their goal based on their reasoning.
+const VERIFICATION_SYSTEM_PROMPT = `You are a goal completion verifier and feedback provider. Your job is to:
+
+1. Determine if a user has legitimately completed their goal based on their reasoning
+2. Provide constructive feedback focusing on what they did well and what they could improve
 
 VERIFICATION CRITERIA:
 - The user must provide specific actions they took
@@ -75,49 +91,92 @@ VERIFICATION CRITERIA:
 - Look for concrete details, not vague statements
 - Consider effort and genuine attempt, not just perfect results
 
-RESPOND WITH ONLY:
-- "Verified" if the reasoning shows legitimate completion
-- "Needs more detail" if the explanation is too vague or unclear
+RESPONSE FORMAT:
+Respond with exactly two parts:
 
-Examples of GOOD reasoning:
+Part 1: A single word: "Verified" or "Unverified"
+Part 2: A short paragraph of feedback focusing on what they did well and what they could do better in the future to improve.
+
+Examples of GOOD reasoning that should be "Verified":
 - "I spent 2 hours updating my resume, added 3 new skills, and sent it to my mentor Sarah for feedback"
 - "I researched 5 job sites (Indeed, LinkedIn, etc.) for 45 minutes and bookmarked 8 relevant positions"
 
-Examples of POOR reasoning:
+Examples of POOR reasoning that should be "Unverified":
 - "I did it"
 - "I worked on my resume"
 - "I looked at some job sites"
 
-Be encouraging but maintain standards for verification.`;
+Be encouraging but maintain standards for verification. Always provide constructive feedback regardless of verification status.`;
 
 // Demo responses for when OpenAI is not configured
-const getDemoResponse = (messages: any[]): string => {
+const getDemoResponse = (messages: any[], context?: any): string => {
   const userMessages = messages.filter(m => m.role === 'user');
   const messageCount = userMessages.length;
+
+  // If goal already set, only ask the follow-up question
+  if (context?.goalAlreadySet) {
+    return "Is there anything else I can help you with today?";
+  }
 
   const demoResponses = [
     "That's really interesting. What's driving this feeling for you right now?",
     "I hear you saying this is important to you. What would success look like?",
-    "What's one small step you could take today to move forward with this?",
-    "How do you think you'll feel once you've made progress on this?",
-    "What's been holding you back from taking action on this before?",
     "Based on what you've shared, can I set a small challenge for you? How about spending 15 minutes today writing down your thoughts about this topic?",
     "What would need to change for you to feel more confident about this situation?",
-    "If you had to choose just one thing to focus on, what would it be?",
-    "What support do you think you'd need to make this happen?",
-    "How will you know when you've achieved what you're looking for?"
+    "If you had to choose just one thing to focus on, what would it be?"
   ];
 
   return demoResponses[Math.min(messageCount - 1, demoResponses.length - 1)] || demoResponses[0];
 };
 
+// Enhanced error handling function
+const handleOpenAIError = (error: any): string => {
+  console.error('OpenAI API detailed error:', {
+    message: error.message,
+    status: error.status,
+    code: error.code,
+    type: error.type,
+    stack: error.stack
+  });
+
+  // Check for specific error types
+  if (error.status === 401) {
+    console.error('❌ OpenAI Authentication Error - Check your API key');
+    return "I'm having trouble connecting right now. Please check your OpenAI API key configuration.";
+  }
+  
+  if (error.status === 429) {
+    console.error('❌ OpenAI Rate Limit Error - Too many requests');
+    return "I'm receiving too many requests right now. Please wait a moment and try again.";
+  }
+  
+  if (error.status === 402) {
+    console.error('❌ OpenAI Billing Error - Insufficient credits');
+    return "There seems to be a billing issue with the OpenAI account. Please check your credits.";
+  }
+  
+  if (error.status >= 500) {
+    console.error('❌ OpenAI Server Error - Service temporarily unavailable');
+    return "OpenAI's servers are temporarily unavailable. Please try again in a moment.";
+  }
+  
+  if (error.message?.includes('fetch')) {
+    console.error('❌ Network Error - Connection failed');
+    return "I'm having trouble connecting right now. Please check your internet connection.";
+  }
+
+  return "I'm having trouble connecting right now. Could you try again?";
+};
+
 export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<string> => {
   if (!isOpenAIConfigured || !openai) {
     console.log('Using demo response (OpenAI not configured)');
-    return getDemoResponse(prompt.messages);
+    return getDemoResponse(prompt.messages, prompt.context);
   }
 
   try {
+    console.log('🤖 Sending request to OpenAI...');
+    
     const messages = [
       { role: 'system' as const, content: COACHING_SYSTEM_PROMPT },
       ...prompt.messages
@@ -126,7 +185,9 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     if (prompt.context) {
       const contextMessage = `Context: ${prompt.context.userName ? `User's name is ${prompt.context.userName}. ` : ''}${
         prompt.context.previousGoals?.length ? `Previous goals: ${prompt.context.previousGoals.join(', ')}. ` : ''
-      }${prompt.context.sessionHistory ? `Recent session summary: ${prompt.context.sessionHistory}` : ''}`;
+      }${prompt.context.sessionHistory ? `Recent session summary: ${prompt.context.sessionHistory}. ` : ''}${
+        prompt.context.goalAlreadySet ? 'A goal has already been set in this session. ' : ''
+      }`;
       
       messages.splice(1, 0, { role: 'system', content: contextMessage });
     }
@@ -138,10 +199,11 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
       temperature: 0.7,
     });
 
+    console.log('✅ OpenAI response received successfully');
     return response.choices[0]?.message?.content || "What's on your mind today?";
   } catch (error) {
-    console.error('OpenAI API error:', error);
-    return getDemoResponse(prompt.messages);
+    const fallbackResponse = handleOpenAIError(error);
+    return fallbackResponse;
   }
 };
 
@@ -162,6 +224,8 @@ export const generateGoalFromConversation = async (conversationHistory: string):
   }
 
   try {
+    console.log('🎯 Generating goal from conversation...');
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -200,8 +264,10 @@ Examples:
     const content = response.choices[0]?.message?.content;
     if (content) {
       try {
+        console.log('✅ Goal generated successfully');
         return JSON.parse(content);
-      } catch {
+      } catch (parseError) {
+        console.error('❌ Failed to parse goal JSON:', parseError);
         return null;
       }
     }
@@ -212,13 +278,24 @@ Examples:
   }
 };
 
-export const verifyGoalCompletion = async (goalDescription: string, userReasoning: string): Promise<boolean> => {
+export const verifyGoalCompletion = async (goalDescription: string, userReasoning: string): Promise<{
+  verified: boolean;
+  feedback: string;
+}> => {
   if (!isOpenAIConfigured || !openai) {
-    // In demo mode, accept any reasoning that's more than 10 characters
-    return userReasoning.trim().length > 10;
+    // In demo mode, provide basic verification
+    const isValid = userReasoning.trim().length > 20;
+    return {
+      verified: isValid,
+      feedback: isValid 
+        ? "Great work! You provided good detail about your actions. Keep being specific about your achievements - it helps track your progress and builds confidence."
+        : "Please provide more specific details about the actions you took to complete this challenge. What exactly did you do? The more detail you share, the better we can celebrate your success!"
+    };
   }
 
   try {
+    console.log('✅ Verifying goal completion...');
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -231,15 +308,36 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
           content: `Goal: ${goalDescription}\n\nUser's completion reasoning: ${userReasoning}`
         }
       ],
-      max_tokens: 10,
-      temperature: 0.1,
+      max_tokens: 200,
+      temperature: 0.3,
     });
 
-    const result = response.choices[0]?.message?.content?.trim().toLowerCase();
-    return result === 'verified';
+    const result = response.choices[0]?.message?.content?.trim();
+    if (!result) {
+      throw new Error('No response from verification');
+    }
+
+    // Parse the response to extract verification status and feedback
+    const lines = result.split('\n').filter(line => line.trim());
+    const verificationLine = lines[0]?.toLowerCase();
+    const verified = verificationLine.includes('verified') && !verificationLine.includes('unverified');
+    
+    // Get feedback (everything after the first line)
+    const feedback = lines.slice(1).join(' ').trim() || 
+      (verified ? "Great work completing this challenge!" : "Please provide more detail about your completion.");
+
+    console.log('✅ Goal verification completed:', verified ? 'Verified' : 'Unverified');
+    
+    return {
+      verified,
+      feedback
+    };
   } catch (error) {
     console.error('Goal verification error:', error);
-    return false;
+    return {
+      verified: false,
+      feedback: 'Verification failed. Please try again with more specific details about how you completed the challenge.'
+    };
   }
 };
 

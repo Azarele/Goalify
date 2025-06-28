@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { Message, CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
@@ -36,6 +37,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   const [hasStartedSession, setHasStartedSession] = useState(false);
   const [messageCount, setMessageCount] = useState(0);
+  const [goalSetInSession, setGoalSetInSession] = useState(false);
   const [context, setContext] = useState<ConversationContext>({
     exploredOptions: [],
     identifiedActions: [],
@@ -75,12 +77,19 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setMessages(session.messages || []);
       setHasStartedSession(true);
       setMessageCount(session.messages?.length || 0);
+      
+      // Check if a goal has already been set in this session
+      const hasGoalMessage = session.messages?.some(m => 
+        m.role === 'assistant' && 
+        m.content.toLowerCase().includes('can i set a small challenge for you')
+      );
+      setGoalSetInSession(hasGoalMessage || false);
     }
   }, [session]);
 
   const createNewSession = (): CoachingSession => {
     return {
-      id: `session_${Date.now()}`,
+      id: uuidv4(),
       date: new Date(),
       messages: [],
       goals: [],
@@ -94,8 +103,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     if (!user) return;
 
     const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?`
-      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}You can type or talk to me — whichever feels easier today. What would you like to explore or make progress on?`;
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What would you like to focus on today?`;
     
     const assistantMessage: Message = {
       id: Date.now().toString(),
@@ -110,6 +119,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setMessages([assistantMessage]);
     setCurrentlyTyping(assistantMessage.id);
     setHasStartedSession(true);
+    setGoalSetInSession(false);
     onSessionStart(newSession);
     
     try {
@@ -165,9 +175,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   };
 
   const generateGoalIfNeeded = async (messages: Message[], currentSession: CoachingSession) => {
-    if (!user) return null;
+    if (!user || goalSetInSession) return null;
 
-    if (messages.length >= 6 && messages.length <= 8) {
+    const userMessages = messages.filter(m => m.role === 'user');
+    
+    // Generate goal after 2-4 user exchanges
+    if (userMessages.length >= 2 && userMessages.length <= 4) {
       const conversationHistory = messages.map(m => `${m.role}: ${m.content}`).join('\n');
       const generatedGoal = await generateGoalFromConversation(conversationHistory);
       
@@ -186,6 +199,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         
         try {
           await saveGoal(user.id, currentSession.id, goal);
+          setGoalSetInSession(true);
         } catch (error) {
           console.error('Error saving goal:', error);
         }
@@ -200,6 +214,25 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         return goalMessage;
       }
     }
+    return null;
+  };
+
+  const generateFollowUpMessage = (messages: Message[]): Message | null => {
+    // Only generate follow-up if goal was just set
+    if (!goalSetInSession) return null;
+    
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'assistant' && 
+        lastMessage.content.toLowerCase().includes('can i set a small challenge for you')) {
+      
+      return {
+        id: (Date.now() + 3).toString(),
+        role: 'assistant',
+        content: "Is there anything else I can help you with today?",
+        timestamp: new Date()
+      };
+    }
+    
     return null;
   };
 
@@ -235,6 +268,44 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
+      // Check if user is indicating they're done
+      const userResponse = content.toLowerCase().trim();
+      const isDone = userResponse === 'no' || 
+                     userResponse.includes('no thanks') || 
+                     userResponse.includes("i'm good") ||
+                     userResponse.includes("that's all") ||
+                     userResponse.includes('nothing else');
+
+      if (goalSetInSession && isDone) {
+        const conclusionMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: "Perfect! You're all set. Take your time working on your challenge, and remember you can always come back here when you're ready to mark it complete or if you need any other support. Good luck!",
+          timestamp: new Date()
+        };
+
+        const finalMessages = [...newMessages, conclusionMessage];
+        setMessages(finalMessages);
+        setCurrentlyTyping(conclusionMessage.id);
+
+        setTimeout(() => {
+          setCurrentlyTyping(null);
+          if (voiceEnabled && isElevenLabsConfigured) {
+            playCoachResponse(conclusionMessage.content);
+          }
+        }, conclusionMessage.content.length * 25);
+
+        const updatedSession = {
+          ...currentSession,
+          messages: finalMessages,
+          completed: true
+        };
+        onSessionUpdate(updatedSession);
+        await saveSession(user.id, updatedSession);
+        setIsLoading(false);
+        return;
+      }
+
       const response = await generateCoachingResponse({
         messages: newMessages.map(m => ({
           role: m.role,
@@ -243,7 +314,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         context: {
           userName: userProfile?.name,
           previousGoals: userProfile?.longTermGoals,
-          currentStage: newContext.growStage
+          currentStage: newContext.growStage,
+          goalAlreadySet: goalSetInSession
         }
       });
 
@@ -256,9 +328,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       let finalMessages = [...newMessages, assistantMessage];
 
+      // Try to generate a goal if conditions are met
       const goalMessage = await generateGoalIfNeeded(finalMessages, currentSession);
       if (goalMessage) {
         finalMessages = [...finalMessages, goalMessage];
+        
+        // Add the follow-up question after goal setting
+        const followUpMessage = generateFollowUpMessage(finalMessages);
+        if (followUpMessage) {
+          finalMessages = [...finalMessages, followUpMessage];
+        }
       }
 
       setMessages(finalMessages);
