@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, Mail, Lock, User, Eye, EyeOff, Loader, AlertCircle } from 'lucide-react';
+import { MessageCircle, Mail, Lock, User, Eye, EyeOff, Loader, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { isSupabaseConfigured } from '../lib/supabase';
 
@@ -12,6 +12,7 @@ export const AuthScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'failed'>('checking');
 
   const { signUp, signIn, signInWithGoogle, isConfigured } = useAuth();
 
@@ -23,7 +24,34 @@ export const AuthScreen: React.FC = () => {
     if (errorParam === 'callback_failed') {
       setError('Authentication failed. Please try again.');
     }
+
+    // Test connection to Supabase
+    testConnection();
   }, []);
+
+  const testConnection = async () => {
+    if (!isSupabaseConfigured) {
+      setConnectionStatus('failed');
+      return;
+    }
+
+    try {
+      // Simple connectivity test
+      const response = await fetch('https://httpbin.org/get', {
+        method: 'GET',
+        mode: 'cors'
+      });
+      
+      if (response.ok) {
+        setConnectionStatus('connected');
+      } else {
+        setConnectionStatus('failed');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionStatus('failed');
+    }
+  };
 
   // Show configuration error if Supabase is not configured
   if (!isConfigured) {
@@ -74,11 +102,46 @@ export const AuthScreen: React.FC = () => {
     );
   }
 
+  const getDetailedErrorMessage = (error: any) => {
+    if (!error) return '';
+    
+    const message = error.message || error.toString();
+    
+    if (message.includes('Failed to fetch') || message.includes('fetch')) {
+      return 'Connection failed. Please check your internet connection and Supabase configuration.';
+    }
+    
+    if (message.includes('Invalid login credentials')) {
+      return 'Invalid email or password. Please check your credentials and try again.';
+    }
+    
+    if (message.includes('Email not confirmed')) {
+      return 'Please check your email and click the confirmation link before signing in.';
+    }
+    
+    if (message.includes('User already registered')) {
+      return 'An account with this email already exists. Please try signing in instead.';
+    }
+    
+    if (message.includes('Password should be at least')) {
+      return 'Password must be at least 6 characters long.';
+    }
+    
+    return message;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setMessage('');
+
+    // Basic validation
+    if (!email || !password) {
+      setError('Please fill in all required fields.');
+      setLoading(false);
+      return;
+    }
 
     if (isSignUp && password !== confirmPassword) {
       setError('Passwords do not match');
@@ -94,30 +157,38 @@ export const AuthScreen: React.FC = () => {
 
     try {
       if (isSignUp) {
+        console.log('Attempting sign up for:', email);
         const { error } = await signUp(email, password);
+        
         if (error) {
-          // Handle specific "user already exists" error
-          if (error.message.includes('User already registered') || error.message.includes('user_already_exists')) {
+          console.error('Sign up error:', error);
+          const detailedError = getDetailedErrorMessage(error);
+          
+          if (error.message?.includes('User already registered') || error.message?.includes('user_already_exists')) {
             setError('An account with this email already exists. Please try signing in instead.');
-            // Automatically switch to sign in mode after a brief delay
             setTimeout(() => {
               setIsSignUp(false);
               setError('');
             }, 3000);
           } else {
-            setError(error.message);
+            setError(detailedError);
           }
         } else {
           setMessage('Check your email for the confirmation link!');
         }
       } else {
+        console.log('Attempting sign in for:', email);
         const { error } = await signIn(email, password);
+        
         if (error) {
-          setError(error.message);
+          console.error('Sign in error:', error);
+          const detailedError = getDetailedErrorMessage(error);
+          setError(detailedError);
         }
       }
     } catch (err) {
-      setError('An unexpected error occurred');
+      console.error('Unexpected error:', err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -128,14 +199,19 @@ export const AuthScreen: React.FC = () => {
     setError('');
     
     try {
+      console.log('Attempting Google sign in');
       const { error } = await signInWithGoogle();
+      
       if (error) {
-        setError(error.message);
+        console.error('Google sign in error:', error);
+        const detailedError = getDetailedErrorMessage(error);
+        setError(detailedError);
         setLoading(false);
       }
       // Don't set loading to false here as we're redirecting
     } catch (err) {
-      setError('Failed to sign in with Google');
+      console.error('Google sign in unexpected error:', err);
+      setError('Failed to sign in with Google. Please try again.');
       setLoading(false);
     }
   };
@@ -159,6 +235,36 @@ export const AuthScreen: React.FC = () => {
           <p className="text-purple-300">Your AI Coaching Companion</p>
         </div>
 
+        {/* Connection Status */}
+        <div className="mb-4">
+          <div className={`flex items-center justify-center space-x-2 p-2 rounded-lg ${
+            connectionStatus === 'connected' 
+              ? 'bg-green-500/10 border border-green-500/20' 
+              : connectionStatus === 'failed'
+              ? 'bg-red-500/10 border border-red-500/20'
+              : 'bg-yellow-500/10 border border-yellow-500/20'
+          }`}>
+            {connectionStatus === 'checking' && (
+              <>
+                <Loader className="w-4 h-4 text-yellow-400 animate-spin" />
+                <span className="text-yellow-300 text-sm">Checking connection...</span>
+              </>
+            )}
+            {connectionStatus === 'connected' && (
+              <>
+                <Wifi className="w-4 h-4 text-green-400" />
+                <span className="text-green-300 text-sm">Connected</span>
+              </>
+            )}
+            {connectionStatus === 'failed' && (
+              <>
+                <WifiOff className="w-4 h-4 text-red-400" />
+                <span className="text-red-300 text-sm">Connection issues detected</span>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Auth Form */}
         <div className="bg-gradient-to-br from-slate-800/50 to-purple-800/30 rounded-2xl p-8 border border-purple-500/20 backdrop-blur-sm">
           <div className="text-center mb-6">
@@ -176,6 +282,16 @@ export const AuthScreen: React.FC = () => {
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
               <p className="text-red-300 text-sm">{error}</p>
+              {error.includes('Connection failed') && (
+                <div className="mt-2 text-xs text-red-200">
+                  <p>Troubleshooting tips:</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Check your internet connection</li>
+                    <li>Verify Supabase URL and API key</li>
+                    <li>Try refreshing the page</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
@@ -254,7 +370,7 @@ export const AuthScreen: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || connectionStatus === 'failed'}
               className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2"
             >
               {loading ? (
@@ -285,7 +401,7 @@ export const AuthScreen: React.FC = () => {
 
             <button
               onClick={handleGoogleSignIn}
-              disabled={loading}
+              disabled={loading || connectionStatus === 'failed'}
               className="w-full mt-4 py-3 px-4 bg-white hover:bg-gray-50 text-gray-900 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2 border border-gray-300"
             >
               {loading ? (
@@ -314,6 +430,14 @@ export const AuthScreen: React.FC = () => {
               }
             </button>
           </div>
+
+          {connectionStatus === 'failed' && (
+            <div className="mt-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+              <p className="text-yellow-300 text-xs text-center">
+                ⚠️ Connection issues detected. Please check your network and try again.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
