@@ -4,12 +4,15 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Validate environment variables
+// Enhanced validation for environment variables
 const hasValidConfig = Boolean(
   supabaseUrl && 
   supabaseAnonKey && 
   supabaseUrl.startsWith('https://') &&
-  supabaseAnonKey.length > 20
+  supabaseAnonKey.length > 20 &&
+  supabaseUrl.includes('.supabase.co') &&
+  // Check if anon key looks like a valid JWT (has 3 parts separated by dots)
+  supabaseAnonKey.split('.').length === 3
 );
 
 if (!hasValidConfig) {
@@ -20,9 +23,22 @@ if (!hasValidConfig) {
   if (supabaseUrl && !supabaseUrl.startsWith('https://')) {
     console.error('❌ VITE_SUPABASE_URL must start with https://');
   }
+  if (supabaseUrl && !supabaseUrl.includes('.supabase.co')) {
+    console.error('❌ VITE_SUPABASE_URL must be a valid Supabase URL (*.supabase.co)');
+  }
   if (supabaseAnonKey && supabaseAnonKey.length <= 20) {
     console.error('❌ VITE_SUPABASE_ANON_KEY appears to be invalid (too short)');
   }
+  if (supabaseAnonKey && supabaseAnonKey.split('.').length !== 3) {
+    console.error('❌ VITE_SUPABASE_ANON_KEY must be a valid JWT token (3 parts separated by dots)');
+  }
+  
+  console.error('\n🔧 To fix this:');
+  console.error('1. Go to your Supabase project dashboard');
+  console.error('2. Navigate to Project Settings → API');
+  console.error('3. Copy your Project URL and anon/public key');
+  console.error('4. Update your .env file with the correct values');
+  console.error('5. Restart your development server');
 }
 
 // Create Supabase client with proper configuration
@@ -40,11 +56,14 @@ export const supabase = hasValidConfig
 
 export const isSupabaseConfigured = hasValidConfig;
 
-// Log configuration status
+// Log configuration status with more detailed feedback
 if (hasValidConfig) {
   console.log('✅ Supabase configured successfully');
+  console.log('📡 Project URL:', supabaseUrl);
+  console.log('🔑 Anon key configured (length:', supabaseAnonKey.length, 'chars)');
 } else {
   console.log('⚠️ Supabase not configured - running in demo mode');
+  console.log('💡 Please check your environment variables and restart the server');
 }
 
 export type Database = {

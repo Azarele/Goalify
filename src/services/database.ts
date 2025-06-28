@@ -4,7 +4,10 @@ import { CoachingSession, Goal, UserProfile, Message } from '../types/coaching';
 // Helper function to check if Supabase is available
 const checkSupabase = () => {
   if (!isSupabaseConfigured || !supabase) {
-    console.warn('Supabase not configured - operation will fail gracefully');
+    console.warn('⚠️ Supabase not configured - operation will fail gracefully');
+    console.warn('💡 Please check your environment variables:');
+    console.warn('   - VITE_SUPABASE_URL should be your project URL');
+    console.warn('   - VITE_SUPABASE_ANON_KEY should be your anon/public key');
     throw new Error('Supabase not configured');
   }
   return supabase;
@@ -18,6 +21,24 @@ const generateConversationTitle = (firstMessage: string): string => {
     title += '...';
   }
   return title || 'New Conversation';
+};
+
+// Enhanced error handling for Supabase operations
+const handleSupabaseError = (error: any, operation: string) => {
+  console.error(`❌ Error in ${operation}:`, error);
+  
+  if (error.message?.includes('JWSError') || error.message?.includes('JWSInvalidSignature')) {
+    console.error('🔑 JWT Authentication Error - This usually means:');
+    console.error('   1. Your VITE_SUPABASE_ANON_KEY is incorrect');
+    console.error('   2. The key doesn\'t match your Supabase project');
+    console.error('   3. Please verify your credentials in the Supabase dashboard');
+  }
+  
+  if (error.code === 'PGRST301') {
+    console.error('🚫 Authentication failed (401) - Invalid API key');
+  }
+  
+  throw error;
 };
 
 // User Profile Operations
@@ -38,7 +59,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
         console.log('No user profile found for:', userId);
         return null;
       }
-      console.error('Error fetching user profile:', error);
+      handleSupabaseError(error, 'getUserProfile');
       return null;
     }
 
@@ -106,7 +127,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
           return existingProfile;
         }
       }
-      console.error('Error creating user profile:', error);
+      handleSupabaseError(error, 'createUserProfile');
       throw error;
     }
 
@@ -165,7 +186,7 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
       .eq('user_id', userId);
 
     if (error) {
-      console.error('Error updating user profile:', error);
+      handleSupabaseError(error, 'updateUserProfile');
       throw error;
     }
 
@@ -193,7 +214,7 @@ export const createConversation = async (userId: string, firstMessage: string): 
       .single();
 
     if (error) {
-      console.error('Error creating conversation:', error);
+      handleSupabaseError(error, 'createConversation');
       throw error;
     }
 
@@ -224,7 +245,7 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       .order('updated_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching conversations:', error);
+      handleSupabaseError(error, 'getUserConversations');
       return [];
     }
 
@@ -256,7 +277,7 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       .order('created_at', { ascending: true });
 
     if (error) {
-      console.error('Error fetching messages:', error);
+      handleSupabaseError(error, 'getConversationMessages');
       return [];
     }
 
@@ -292,7 +313,7 @@ export const saveMessage = async (conversationId: string, message: Message): Pro
       });
 
     if (error) {
-      console.error('Error saving message:', error);
+      handleSupabaseError(error, 'saveMessage');
       throw error;
     }
 
@@ -329,7 +350,7 @@ export const updateConversation = async (conversationId: string, updates: {
       .eq('id', conversationId);
 
     if (error) {
-      console.error('Error updating conversation:', error);
+      handleSupabaseError(error, 'updateConversation');
       throw error;
     }
 
@@ -362,7 +383,7 @@ export const saveSession = async (userId: string, session: CoachingSession): Pro
       .upsert(sessionData);
 
     if (error) {
-      console.error('Error saving session:', error);
+      handleSupabaseError(error, 'saveSession');
       throw error;
     }
 
@@ -386,7 +407,7 @@ export const getUserSessions = async (userId: string): Promise<CoachingSession[]
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching sessions:', error);
+      handleSupabaseError(error, 'getUserSessions');
       return [];
     }
 
@@ -420,7 +441,7 @@ export const getSession = async (userId: string, sessionId: string): Promise<Coa
       .single();
 
     if (error) {
-      console.error('Error fetching session:', error);
+      handleSupabaseError(error, 'getSession');
       return null;
     }
 
@@ -467,7 +488,7 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
       .upsert(goalData);
 
     if (error) {
-      console.error('Error saving goal:', error);
+      handleSupabaseError(error, 'saveGoal');
       throw error;
     }
 
@@ -490,7 +511,7 @@ export const getSessionGoals = async (userId: string, sessionId: string): Promis
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching session goals:', error);
+      handleSupabaseError(error, 'getSessionGoals');
       return [];
     }
 
@@ -523,7 +544,7 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching user goals:', error);
+      handleSupabaseError(error, 'getUserGoals');
       return [];
     }
 
