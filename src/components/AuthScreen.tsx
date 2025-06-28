@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, Mail, Lock, User, Eye, EyeOff, Loader, AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { MessageCircle, Mail, Lock, User, Eye, EyeOff, Loader, AlertCircle, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { isSupabaseConfigured } from '../lib/supabase';
 
@@ -13,8 +13,9 @@ export const AuthScreen: React.FC = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'failed'>('checking');
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
 
-  const { signUp, signIn, signInWithGoogle, isConfigured } = useAuth();
+  const { signUp, signIn, signInWithGoogle, isConfigured, resendConfirmation } = useAuth();
 
   useEffect(() => {
     // Check for error in URL params
@@ -117,12 +118,12 @@ export const AuthScreen: React.FC = () => {
       return 'Connection failed. Please check your internet connection and Supabase configuration.';
     }
     
-    if (message.includes('Invalid login credentials')) {
-      return 'Invalid email or password. Please check your credentials and try again.';
+    if (message.includes('Invalid login credentials') || message.includes('invalid_credentials')) {
+      return 'Invalid email or password. Please double-check your credentials and try again.';
     }
     
-    if (message.includes('Email not confirmed')) {
-      return 'Please check your email and click the confirmation link before signing in.';
+    if (message.includes('Email not confirmed') || message.includes('email_not_confirmed')) {
+      return 'email_not_confirmed';
     }
     
     if (message.includes('User already registered')) {
@@ -134,6 +135,31 @@ export const AuthScreen: React.FC = () => {
     }
     
     return message;
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setError('Please enter your email address first.');
+      return;
+    }
+
+    setResendingConfirmation(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const { error } = await resendConfirmation(email);
+      
+      if (error) {
+        setError('Failed to resend confirmation email. Please try again.');
+      } else {
+        setMessage('Confirmation email sent! Please check your inbox and spam folder.');
+      }
+    } catch (err) {
+      setError('Failed to resend confirmation email. Please try again.');
+    } finally {
+      setResendingConfirmation(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -180,7 +206,7 @@ export const AuthScreen: React.FC = () => {
             setError(detailedError);
           }
         } else {
-          setMessage('Check your email for the confirmation link!');
+          setMessage('Account created! Please check your email for the confirmation link before signing in.');
         }
       } else {
         console.log('Attempting sign in for:', email);
@@ -221,6 +247,8 @@ export const AuthScreen: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const isEmailNotConfirmedError = error === 'email_not_confirmed';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center p-4">
@@ -285,7 +313,7 @@ export const AuthScreen: React.FC = () => {
             </p>
           </div>
 
-          {error && (
+          {error && !isEmailNotConfirmedError && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
               <p className="text-red-300 text-sm">{error}</p>
               {error.includes('Connection failed') && (
@@ -298,6 +326,53 @@ export const AuthScreen: React.FC = () => {
                   </ul>
                 </div>
               )}
+              {error.includes('Invalid email or password') && (
+                <div className="mt-2 text-xs text-red-200">
+                  <p>Tips:</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Check for typos in your email and password</li>
+                    <li>Make sure Caps Lock is not enabled</li>
+                    <li>Try creating a new account if you forgot your password</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isEmailNotConfirmedError && (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-3">
+                <Mail className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-yellow-300 mb-2">Email Confirmation Required</h3>
+                  <p className="text-yellow-200 text-sm mb-3">
+                    Please check your email inbox (and spam folder) for a confirmation link from Goalify. 
+                    You must click this link before you can sign in.
+                  </p>
+                  <div className="space-y-2">
+                    <p className="text-yellow-200 text-xs">
+                      Didn't receive the email?
+                    </p>
+                    <button
+                      onClick={handleResendConfirmation}
+                      disabled={resendingConfirmation || !email}
+                      className="flex items-center space-x-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {resendingConfirmation ? (
+                        <>
+                          <Loader className="w-4 h-4 animate-spin" />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4" />
+                          <span>Resend confirmation email</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -321,7 +396,7 @@ export const AuthScreen: React.FC = () => {
                   className="w-full pl-10 pr-4 py-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400"
                   placeholder="Enter your email"
                   required
-                  disabled={loading}
+                  disabled={loading || resendingConfirmation}
                 />
               </div>
             </div>
@@ -339,14 +414,14 @@ export const AuthScreen: React.FC = () => {
                   className="w-full pl-10 pr-12 py-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400"
                   placeholder="Enter your password"
                   required
-                  disabled={loading}
+                  disabled={loading || resendingConfirmation}
                   minLength={6}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-400 hover:text-purple-300 disabled:opacity-50"
-                  disabled={loading}
+                  disabled={loading || resendingConfirmation}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -367,7 +442,7 @@ export const AuthScreen: React.FC = () => {
                     className="w-full pl-10 pr-4 py-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400"
                     placeholder="Confirm your password"
                     required
-                    disabled={loading}
+                    disabled={loading || resendingConfirmation}
                     minLength={6}
                   />
                 </div>
@@ -376,7 +451,7 @@ export const AuthScreen: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading || connectionStatus === 'failed'}
+              disabled={loading || resendingConfirmation || connectionStatus === 'failed'}
               className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2"
             >
               {loading ? (
@@ -407,7 +482,7 @@ export const AuthScreen: React.FC = () => {
 
             <button
               onClick={handleGoogleSignIn}
-              disabled={loading || connectionStatus === 'failed'}
+              disabled={loading || resendingConfirmation || connectionStatus === 'failed'}
               className="w-full mt-4 py-3 px-4 bg-white hover:bg-gray-50 text-gray-900 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2 border border-gray-300"
             >
               {loading ? (
@@ -427,7 +502,7 @@ export const AuthScreen: React.FC = () => {
           <div className="mt-6 text-center">
             <button
               onClick={() => setIsSignUp(!isSignUp)}
-              disabled={loading}
+              disabled={loading || resendingConfirmation}
               className="text-purple-300 hover:text-white transition-colors text-sm disabled:opacity-50"
             >
               {isSignUp 

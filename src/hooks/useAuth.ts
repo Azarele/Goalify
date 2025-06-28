@@ -125,6 +125,28 @@ export const useAuth = () => {
     }
   };
 
+  const resendConfirmation = async (email: string) => {
+    if (!isSupabaseConfigured || !supabase) {
+      return { error: { message: 'Supabase not configured' } };
+    }
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      
+      console.log('Resend confirmation result:', { error });
+      return { error };
+    } catch (error) {
+      console.error('Resend confirmation error:', error);
+      return { error: { message: 'Failed to resend confirmation email' } };
+    }
+  };
+
   const signOut = async () => {
     if (!isSupabaseConfigured || !supabase) {
       return { error: null };
@@ -148,6 +170,7 @@ export const useAuth = () => {
     signIn,
     signInWithGoogle,
     signOut,
+    resendConfirmation,
     isConfigured: isSupabaseConfigured,
   };
 };
