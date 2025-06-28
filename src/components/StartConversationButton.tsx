@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageCircle, Mic, Sparkles } from 'lucide-react';
+import { MessageCircle, Mic, Sparkles, Target } from 'lucide-react';
 
 interface StartConversationButtonProps {
   onStart: () => void;
@@ -7,8 +7,8 @@ interface StartConversationButtonProps {
 
 export const StartConversationButton: React.FC<StartConversationButtonProps> = ({ onStart }) => {
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="text-center space-y-8 max-w-md">
+    <div className="flex items-center justify-center min-h-screen w-full">
+      <div className="text-center space-y-8 max-w-lg px-6">
         {/* Animated Logo */}
         <div className="relative mx-auto w-24 h-24 mb-8">
           <div className="w-24 h-24 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
@@ -21,14 +21,34 @@ export const StartConversationButton: React.FC<StartConversationButtonProps> = (
         </div>
 
         {/* Welcome Text */}
-        <div className="space-y-4">
-          <h2 className="text-3xl font-bold text-white">
+        <div className="space-y-6">
+          <h1 className="text-4xl font-bold text-white">
             Ready to explore your thoughts?
-          </h2>
-          <p className="text-purple-300 text-lg">
-            I'm here to listen, ask thoughtful questions, and help you discover your own answers.
+          </h1>
+          <p className="text-purple-300 text-lg leading-relaxed">
+            I'm here to listen, ask thoughtful questions, and help you discover your own answers through meaningful conversation.
           </p>
-          <div className="flex items-center justify-center space-x-4 text-sm text-purple-400">
+          
+          {/* Features */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+            <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl p-4 border border-purple-500/20">
+              <div className="flex items-center space-x-3 mb-2">
+                <MessageCircle className="w-5 h-5 text-purple-400" />
+                <span className="text-white font-medium">Natural Conversation</span>
+              </div>
+              <p className="text-purple-300 text-sm">Type or speak naturally - I'll listen and respond thoughtfully</p>
+            </div>
+            
+            <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-4 border border-blue-500/20">
+              <div className="flex items-center space-x-3 mb-2">
+                <Target className="w-5 h-5 text-blue-400" />
+                <span className="text-white font-medium">Goal-Focused</span>
+              </div>
+              <p className="text-purple-300 text-sm">Together we'll identify challenges and create actionable goals</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-center space-x-4 text-sm text-purple-400 mt-6">
             <div className="flex items-center space-x-1">
               <MessageCircle className="w-4 h-4" />
               <span>Type</span>
@@ -56,10 +76,15 @@ export const StartConversationButton: React.FC<StartConversationButtonProps> = (
         </button>
 
         {/* Helpful Tips */}
-        <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl p-4 border border-purple-500/20 backdrop-blur-sm">
-          <p className="text-purple-300 text-sm">
-            💡 <strong>Tip:</strong> Share what's on your mind, and I'll help you think through it step by step.
-          </p>
+        <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl p-6 border border-purple-500/20 backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-purple-300 text-sm">
+              💡 <strong className="text-white">Tip:</strong> Share what's on your mind, and I'll help you think through it step by step.
+            </p>
+            <p className="text-purple-300 text-sm">
+              🎯 After our conversation, I'll suggest a specific challenge to help you take action.
+            </p>
+          </div>
         </div>
       </div>
     </div>

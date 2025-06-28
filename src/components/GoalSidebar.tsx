@@ -98,16 +98,16 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
   };
 
-  const handleVerifyGoal = async (goalId: string, reasoning: string): Promise<boolean> => {
+  const handleVerifyGoal = async (goalId: string, reasoning: string): Promise<{ verified: boolean; feedback: string }> => {
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) return false;
+    if (!goal) return { verified: false, feedback: 'Goal not found.' };
 
     try {
-      const verified = await verifyGoalCompletion(goal.description, reasoning);
-      return verified;
+      const result = await verifyGoalCompletion(goal.description, reasoning);
+      return result;
     } catch (error) {
       console.error('Verification error:', error);
-      return false;
+      return { verified: false, feedback: 'Verification failed. Please try again.' };
     }
   };
 
@@ -294,14 +294,14 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                     <div 
                       key={goal.id}
                       onClick={() => handleGoalClick(goal)}
-                      className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer"
+                      className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer group"
                     >
                       <div className="flex items-start space-x-3">
-                        <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center">
+                        <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
                           {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
                         </div>
                         <div className="flex-1">
-                          <p className="text-sm text-white">{goal.description}</p>
+                          <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
                           
                           <div className="flex items-center space-x-2 mt-2">
                             <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
@@ -336,7 +336,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
                   <p className="text-blue-300 text-xs">
-                    💡 Click on a goal to mark it complete and earn XP!
+                    💡 Click on a challenge to mark it complete and earn XP!
                   </p>
                 </div>
               </div>
@@ -386,13 +386,13 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
             {goals.length === 0 && (
               <div className="text-center py-8">
                 <Target className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-medium text-white mb-2">No goals yet</h3>
+                <h3 className="text-lg font-medium text-white mb-2">No challenges yet</h3>
                 <p className="text-purple-300 text-sm mb-4">
-                  Continue your conversation to identify goals and track your progress!
+                  Continue your conversation to identify challenges and track your progress!
                 </p>
                 <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
                   <p className="text-purple-300 text-xs">
-                    🤖 I'll automatically suggest goals based on our conversation
+                    🤖 I'll automatically suggest challenges based on our conversation
                   </p>
                 </div>
               </div>

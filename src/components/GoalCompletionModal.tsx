@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, X, Loader, Star, Trophy } from 'lucide-react';
+import { CheckCircle, X, Loader, Star, Trophy, AlertCircle } from 'lucide-react';
 
 interface Goal {
   id: string;
@@ -18,7 +18,7 @@ interface GoalCompletionModalProps {
   goal: Goal;
   isOpen: boolean;
   onClose: () => void;
-  onVerify: (goalId: string, reasoning: string) => Promise<boolean>;
+  onVerify: (goalId: string, reasoning: string) => Promise<{ verified: boolean; feedback: string }>;
   onComplete: (goalId: string, xpGained: number) => void;
 }
 
@@ -31,32 +31,35 @@ export const GoalCompletionModal: React.FC<GoalCompletionModalProps> = ({
 }) => {
   const [reasoning, setReasoning] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verificationFailed, setVerificationFailed] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [isVerified, setIsVerified] = useState<boolean | null>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const handleSubmit = async () => {
     if (!reasoning.trim()) {
-      setErrorMessage('Please explain how you accomplished this goal.');
       return;
     }
 
     setIsVerifying(true);
-    setVerificationFailed(false);
-    setErrorMessage('');
+    setShowFeedback(false);
 
     try {
-      const verified = await onVerify(goal.id, reasoning);
+      const result = await onVerify(goal.id, reasoning);
+      setIsVerified(result.verified);
+      setFeedback(result.feedback);
+      setShowFeedback(true);
       
-      if (verified) {
-        onComplete(goal.id, goal.xpValue);
-        onClose();
-        setReasoning('');
-      } else {
-        setVerificationFailed(true);
-        setErrorMessage('Please provide more detail about how you completed this goal.');
+      if (result.verified) {
+        // Award XP after a brief delay to show feedback
+        setTimeout(() => {
+          onComplete(goal.id, goal.xpValue);
+          handleClose();
+        }, 2000);
       }
     } catch (error) {
-      setErrorMessage('Verification failed. Please try again.');
+      setFeedback('Verification failed. Please try again.');
+      setIsVerified(false);
+      setShowFeedback(true);
     } finally {
       setIsVerifying(false);
     }
@@ -64,9 +67,16 @@ export const GoalCompletionModal: React.FC<GoalCompletionModalProps> = ({
 
   const handleClose = () => {
     setReasoning('');
-    setVerificationFailed(false);
-    setErrorMessage('');
+    setFeedback('');
+    setIsVerified(null);
+    setShowFeedback(false);
     onClose();
+  };
+
+  const handleTryAgain = () => {
+    setShowFeedback(false);
+    setIsVerified(null);
+    setFeedback('');
   };
 
   if (!isOpen) return null;
@@ -95,7 +105,7 @@ export const GoalCompletionModal: React.FC<GoalCompletionModalProps> = ({
 
           <div className="mb-6">
             <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg p-4 border border-purple-500/20 mb-4">
-              <p className="text-white font-medium mb-2">Your Goal:</p>
+              <p className="text-white font-medium mb-2">Your Challenge:</p>
               <p className="text-purple-200 text-sm">{goal.description}</p>
               <div className="flex items-center space-x-2 mt-3">
                 <Star className="w-4 h-4 text-yellow-400" />
@@ -103,58 +113,103 @@ export const GoalCompletionModal: React.FC<GoalCompletionModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3">
-              <label className="block text-sm font-medium text-white">
-                Great work! How did you accomplish this? <span className="text-red-400">*</span>
-              </label>
-              <textarea
-                value={reasoning}
-                onChange={(e) => setReasoning(e.target.value)}
-                placeholder="Describe the specific actions you took to complete this goal..."
-                rows={4}
-                className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none"
-                disabled={isVerifying}
-              />
-              
-              {errorMessage && (
-                <p className="text-red-400 text-sm">{errorMessage}</p>
-              )}
-
-              {verificationFailed && (
-                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
-                  <p className="text-yellow-300 text-sm">
-                    Please provide more specific details about your actions and results.
+            {!showFeedback ? (
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-white">
+                  Fantastic! Please explain how you completed this challenge: <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  value={reasoning}
+                  onChange={(e) => setReasoning(e.target.value)}
+                  placeholder="Describe the specific actions you took to complete this challenge..."
+                  rows={4}
+                  className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none"
+                  disabled={isVerifying}
+                />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className={`rounded-lg p-4 border ${
+                  isVerified 
+                    ? 'bg-green-500/10 border-green-500/20' 
+                    : 'bg-yellow-500/10 border-yellow-500/20'
+                }`}>
+                  <div className="flex items-center space-x-2 mb-2">
+                    {isVerified ? (
+                      <>
+                        <CheckCircle className="w-5 h-5 text-green-400" />
+                        <span className="font-medium text-green-300">Verified!</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-5 h-5 text-yellow-400" />
+                        <span className="font-medium text-yellow-300">Needs More Detail</span>
+                      </>
+                    )}
+                  </div>
+                  <p className={`text-sm ${isVerified ? 'text-green-200' : 'text-yellow-200'}`}>
+                    {feedback}
                   </p>
                 </div>
-              )}
-            </div>
+
+                {isVerified && (
+                  <div className="text-center">
+                    <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full border border-purple-500/30">
+                      <Trophy className="w-4 h-4 text-yellow-400" />
+                      <span className="text-white font-medium">+{goal.xpValue} XP awarded!</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex space-x-3">
-            <button
-              onClick={handleClose}
-              disabled={isVerifying}
-              className="flex-1 py-3 px-4 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!reasoning.trim() || isVerifying}
-              className="flex-1 py-3 px-4 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2"
-            >
-              {isVerifying ? (
-                <>
-                  <Loader className="w-4 h-4 animate-spin" />
-                  <span>Verifying...</span>
-                </>
-              ) : (
-                <>
-                  <Trophy className="w-4 h-4" />
-                  <span>Claim Reward</span>
-                </>
-              )}
-            </button>
+            {!showFeedback ? (
+              <>
+                <button
+                  onClick={handleClose}
+                  disabled={isVerifying}
+                  className="flex-1 py-3 px-4 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!reasoning.trim() || isVerifying}
+                  className="flex-1 py-3 px-4 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2"
+                >
+                  {isVerifying ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trophy className="w-4 h-4" />
+                      <span>Submit</span>
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                {!isVerified && (
+                  <button
+                    onClick={handleTryAgain}
+                    className="flex-1 py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                  >
+                    Try Again
+                  </button>
+                )}
+                <button
+                  onClick={handleClose}
+                  className="flex-1 py-3 px-4 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium transition-colors"
+                >
+                  {isVerified ? 'Continue' : 'Close'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
