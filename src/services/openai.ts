@@ -90,16 +90,21 @@ CRITICAL RULES:
 3. Concluding message should be encouraging and under 40 words
 4. Example: "Perfect! You're all set. Take your time with your challenge. Good luck!"`;
 
-const VERIFICATION_PROMPT = `Verify goal completion and provide feedback.
+// CRITICAL: Goal Verification Prompt - Returns structured response
+const VERIFICATION_PROMPT = `You are a goal completion verifier. Analyze if the user legitimately completed their goal.
 
-Respond with:
-1. "Verified" or "Unverified" 
-2. One paragraph of constructive feedback
+CRITICAL INSTRUCTIONS:
+1. First line: ONLY "Verified" or "Unverified"
+2. Second line: One paragraph of constructive feedback
 
-VERIFIED = Specific actions described with details
+VERIFIED = Specific actions described with concrete details
 UNVERIFIED = Vague responses like "I did it" or "I worked on it"
 
-Be encouraging but maintain standards.`;
+Be encouraging but maintain standards for verification.
+
+Format your response EXACTLY like this:
+[Verification Status]
+[Feedback paragraph]`;
 
 const ANALYSIS_PROMPT = `Analyze user's coaching data and provide insights.
 
@@ -389,6 +394,7 @@ Make it specific, measurable, achievable.`
   }
 };
 
+// CRITICAL: Enhanced goal verification with structured response
 export const verifyGoalCompletion = async (goalDescription: string, userReasoning: string): Promise<{
   verified: boolean;
   feedback: string;
@@ -407,8 +413,14 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
     const response = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
-        { role: 'system', content: VERIFICATION_PROMPT },
-        { role: 'user', content: `Goal: ${goalDescription}\n\nReasoning: ${userReasoning}` }
+        { 
+          role: 'system', 
+          content: VERIFICATION_PROMPT
+        },
+        { 
+          role: 'user', 
+          content: `Goal: ${goalDescription}\n\nUser's explanation: ${userReasoning}`
+        }
       ],
       max_tokens: 150,
       temperature: 0.3,
@@ -417,9 +429,10 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
     const result = response.choices[0]?.message?.content?.trim();
     if (!result) throw new Error('No response');
 
+    // Parse the structured response
     const lines = result.split('\n').filter(line => line.trim());
-    const verified = lines[0]?.toLowerCase().includes('verified') && 
-                    !lines[0]?.toLowerCase().includes('unverified');
+    const verificationStatus = lines[0]?.trim().toLowerCase();
+    const verified = verificationStatus === 'verified';
     const feedback = lines.slice(1).join(' ').trim() || 
                     (verified ? "Great work!" : "Please provide more detail.");
 

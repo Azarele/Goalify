@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Target, TrendingUp, CheckCircle, Calendar, Star, Zap, Trophy, Award } from 'lucide-react';
+import { X, Target, TrendingUp, CheckCircle, Calendar, Star, Zap, Trophy, Award, Loader, AlertCircle } from 'lucide-react';
 import { CoachingSession, ConversationContext, UserProfile } from '../types/coaching';
 import { getSessionGoals, saveGoal, updateUserProfile } from '../services/database';
 import { verifyGoalCompletion } from '../services/openai';
-import { GoalCompletionModal } from './GoalCompletionModal';
 import { useAuth } from '../hooks/useAuth';
 
 interface GoalSidebarProps {
@@ -27,6 +26,15 @@ interface Goal {
   createdAt: Date;
 }
 
+interface GoalCompletionState {
+  goalId: string;
+  reasoning: string;
+  isSubmitting: boolean;
+  feedback: string;
+  verified: boolean | null;
+  showFeedback: boolean;
+}
+
 export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   isOpen,
   onClose,
@@ -40,10 +48,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   const [userLevel, setUserLevel] = useState(1);
   const [showXPAnimation, setShowXPAnimation] = useState(false);
   const [xpGained, setXpGained] = useState(0);
-  const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
-  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [expandedGoal, setExpandedGoal] = useState<string | null>(null);
-  const [goalFeedback, setGoalFeedback] = useState<{ [goalId: string]: { feedback: string; verified: boolean } }>({});
+  const [completionStates, setCompletionStates] = useState<{ [goalId: string]: GoalCompletionState }>({});
 
   useEffect(() => {
     loadGoals();
@@ -93,37 +99,101 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     return ((currentIndex + 1) / stages.length) * 100;
   };
 
+  // CRITICAL: Handle goal click to expand completion form
   const handleGoalClick = (goal: Goal) => {
     if (!goal.completed) {
       if (expandedGoal === goal.id) {
         setExpandedGoal(null);
+        // Clear completion state when collapsing
+        setCompletionStates(prev => {
+          const newState = { ...prev };
+          delete newState[goal.id];
+          return newState;
+        });
       } else {
         setExpandedGoal(goal.id);
+        // Initialize completion state
+        setCompletionStates(prev => ({
+          ...prev,
+          [goal.id]: {
+            goalId: goal.id,
+            reasoning: '',
+            isSubmitting: false,
+            feedback: '',
+            verified: null,
+            showFeedback: false
+          }
+        }));
       }
     }
   };
 
-  const handleVerifyGoal = async (goalId: string, reasoning: string): Promise<{ verified: boolean; feedback: string }> => {
+  // CRITICAL: Handle goal completion submission with verification
+  const handleSubmitGoalCompletion = async (goalId: string) => {
+    const completionState = completionStates[goalId];
+    if (!completionState || !completionState.reasoning.trim()) {
+      return;
+    }
+
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) return { verified: false, feedback: 'Goal not found.' };
+    if (!goal) return;
+
+    // Update state to show submitting
+    setCompletionStates(prev => ({
+      ...prev,
+      [goalId]: {
+        ...prev[goalId],
+        isSubmitting: true,
+        showFeedback: false
+      }
+    }));
 
     try {
-      const result = await verifyGoalCompletion(goal.description, reasoning);
+      // CRITICAL: Send to OpenAI for verification
+      const result = await verifyGoalCompletion(goal.description, completionState.reasoning);
       
-      // Store feedback in sidebar
-      setGoalFeedback(prev => ({
+      // Update state with verification result
+      setCompletionStates(prev => ({
         ...prev,
-        [goalId]: result
+        [goalId]: {
+          ...prev[goalId],
+          isSubmitting: false,
+          feedback: result.feedback,
+          verified: result.verified,
+          showFeedback: true
+        }
       }));
-      
-      return result;
+
+      // If verified, complete the goal and award XP
+      if (result.verified) {
+        setTimeout(async () => {
+          await completeGoal(goalId, goal.xpValue);
+          setExpandedGoal(null);
+          // Clear completion state
+          setCompletionStates(prev => {
+            const newState = { ...prev };
+            delete newState[goalId];
+            return newState;
+          });
+        }, 2000); // Show feedback for 2 seconds before completing
+      }
+
     } catch (error) {
-      console.error('Verification error:', error);
-      return { verified: false, feedback: 'Verification failed. Please try again.' };
+      console.error('Error verifying goal:', error);
+      setCompletionStates(prev => ({
+        ...prev,
+        [goalId]: {
+          ...prev[goalId],
+          isSubmitting: false,
+          feedback: 'Verification failed. Please try again.',
+          verified: false,
+          showFeedback: true
+        }
+      }));
     }
   };
 
-  const handleCompleteGoal = async (goalId: string, xpReward: number) => {
+  const completeGoal = async (goalId: string, xpReward: number) => {
     if (!user || !userProfile) return;
 
     const goal = goals.find(g => g.id === goalId);
@@ -162,16 +232,26 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }
   };
 
-  const handleSubmitGoalCompletion = async (goalId: string, reasoning: string) => {
-    const result = await handleVerifyGoal(goalId, reasoning);
-    
-    if (result.verified) {
-      const goal = goals.find(g => g.id === goalId);
-      if (goal) {
-        await handleCompleteGoal(goalId, goal.xpValue);
-        setExpandedGoal(null);
+  const handleReasoningChange = (goalId: string, reasoning: string) => {
+    setCompletionStates(prev => ({
+      ...prev,
+      [goalId]: {
+        ...prev[goalId],
+        reasoning
       }
-    }
+    }));
+  };
+
+  const handleTryAgain = (goalId: string) => {
+    setCompletionStates(prev => ({
+      ...prev,
+      [goalId]: {
+        ...prev[goalId],
+        showFeedback: false,
+        verified: null,
+        feedback: ''
+      }
+    }));
   };
 
   const pendingGoals = goals.filter(g => !g.completed);
@@ -300,105 +380,153 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 </h4>
                 
                 <div className="space-y-2">
-                  {pendingGoals.map((goal) => (
-                    <div key={goal.id} className="space-y-2">
-                      <div 
-                        onClick={() => handleGoalClick(goal)}
-                        className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer group"
-                      >
-                        <div className="flex items-start space-x-3">
-                          <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
-                            {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
-                            
-                            <div className="flex items-center space-x-2 mt-2">
-                              <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
-                                {goal.difficulty}
-                              </span>
-                              <div className="flex items-center space-x-1 text-xs text-purple-300">
-                                <Star className="w-3 h-3" />
-                                <span>{goal.xpValue} XP</span>
+                  {pendingGoals.map((goal) => {
+                    const completionState = completionStates[goal.id];
+                    
+                    return (
+                      <div key={goal.id} className="space-y-2">
+                        <div 
+                          onClick={() => handleGoalClick(goal)}
+                          className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-600/40 transition-colors cursor-pointer group"
+                        >
+                          <div className="flex items-start space-x-3">
+                            <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
+                              {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
+                              
+                              <div className="flex items-center space-x-2 mt-2">
+                                <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
+                                  {goal.difficulty}
+                                </span>
+                                <div className="flex items-center space-x-1 text-xs text-purple-300">
+                                  <Star className="w-3 h-3" />
+                                  <span>{goal.xpValue} XP</span>
+                                </div>
+                              </div>
+
+                              {goal.deadline && (
+                                <p className="text-xs text-purple-300 mt-1 flex items-center space-x-1">
+                                  <Calendar className="w-3 h-3" />
+                                  <span>Due: {goal.deadline.toLocaleDateString()}</span>
+                                </p>
+                              )}
+                              
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-purple-400">
+                                  Motivation: {goal.motivation}/10
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {goal.createdAt.toLocaleDateString()}
+                                </span>
                               </div>
                             </div>
+                          </div>
+                        </div>
 
-                            {goal.deadline && (
-                              <p className="text-xs text-purple-300 mt-1 flex items-center space-x-1">
-                                <Calendar className="w-3 h-3" />
-                                <span>Due: {goal.deadline.toLocaleDateString()}</span>
-                              </p>
-                            )}
+                        {/* CRITICAL: Expanded Goal Completion Form - Entire lifecycle within sidebar */}
+                        {expandedGoal === goal.id && (
+                          <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-4 border border-green-500/20 animate-fade-in">
+                            <h5 className="text-white font-medium mb-3 flex items-center space-x-2">
+                              <Trophy className="w-4 h-4 text-yellow-400" />
+                              <span>Complete this challenge</span>
+                            </h5>
                             
-                            <div className="flex items-center justify-between mt-2">
-                              <span className="text-xs text-purple-400">
-                                Motivation: {goal.motivation}/10
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                {goal.createdAt.toLocaleDateString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                            {!completionState?.showFeedback ? (
+                              <>
+                                <textarea
+                                  value={completionState?.reasoning || ''}
+                                  onChange={(e) => handleReasoningChange(goal.id, e.target.value)}
+                                  placeholder="Describe how you completed this challenge..."
+                                  rows={3}
+                                  className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none text-sm"
+                                  disabled={completionState?.isSubmitting}
+                                />
+                                
+                                <div className="flex space-x-2 mt-3">
+                                  <button
+                                    onClick={() => setExpandedGoal(null)}
+                                    disabled={completionState?.isSubmitting}
+                                    className="flex-1 py-2 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => handleSubmitGoalCompletion(goal.id)}
+                                    disabled={!completionState?.reasoning?.trim() || completionState?.isSubmitting}
+                                    className="flex-1 py-2 px-3 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg text-sm font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-1"
+                                  >
+                                    {completionState?.isSubmitting ? (
+                                      <>
+                                        <Loader className="w-3 h-3 animate-spin" />
+                                        <span>Verifying...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Trophy className="w-3 h-3" />
+                                        <span>Submit for Review</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                {/* CRITICAL: Display verification result */}
+                                <div className={`rounded-lg p-4 border mb-4 ${
+                                  completionState.verified 
+                                    ? 'bg-green-500/10 border-green-500/20' 
+                                    : 'bg-yellow-500/10 border-yellow-500/20'
+                                }`}>
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    {completionState.verified ? (
+                                      <>
+                                        <CheckCircle className="w-5 h-5 text-green-400" />
+                                        <span className="font-medium text-green-300">Verified!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <AlertCircle className="w-5 h-5 text-yellow-400" />
+                                        <span className="font-medium text-yellow-300">Needs More Detail</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <p className={`text-sm ${completionState.verified ? 'text-green-200' : 'text-yellow-200'}`}>
+                                    {completionState.feedback}
+                                  </p>
+                                </div>
 
-                      {/* Expanded Goal Completion Form */}
-                      {expandedGoal === goal.id && (
-                        <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-4 border border-green-500/20 animate-fade-in">
-                          <h5 className="text-white font-medium mb-3">Complete this challenge</h5>
-                          <textarea
-                            placeholder="Describe how you completed this challenge..."
-                            rows={3}
-                            className="w-full p-3 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white placeholder-purple-300 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400 resize-none text-sm"
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && e.ctrlKey) {
-                                const reasoning = (e.target as HTMLTextAreaElement).value;
-                                if (reasoning.trim()) {
-                                  handleSubmitGoalCompletion(goal.id, reasoning);
-                                }
-                              }
-                            }}
-                          />
-                          
-                          {goalFeedback[goal.id] && (
-                            <div className={`mt-3 p-3 rounded-lg border ${
-                              goalFeedback[goal.id].verified 
-                                ? 'bg-green-500/10 border-green-500/20' 
-                                : 'bg-yellow-500/10 border-yellow-500/20'
-                            }`}>
-                              <p className={`text-sm ${
-                                goalFeedback[goal.id].verified ? 'text-green-300' : 'text-yellow-300'
-                              }`}>
-                                {goalFeedback[goal.id].feedback}
-                              </p>
-                            </div>
-                          )}
-                          
-                          <div className="flex space-x-2 mt-3">
-                            <button
-                              onClick={() => setExpandedGoal(null)}
-                              className="flex-1 py-2 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => {
-                                const textarea = document.querySelector(`textarea`) as HTMLTextAreaElement;
-                                const reasoning = textarea?.value;
-                                if (reasoning?.trim()) {
-                                  handleSubmitGoalCompletion(goal.id, reasoning);
-                                }
-                              }}
-                              className="flex-1 py-2 px-3 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg text-sm font-medium transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-1"
-                            >
-                              <Trophy className="w-3 h-3" />
-                              <span>Submit</span>
-                            </button>
+                                {completionState.verified ? (
+                                  <div className="text-center">
+                                    <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full border border-purple-500/30">
+                                      <Trophy className="w-4 h-4 text-yellow-400" />
+                                      <span className="text-white font-medium">+{goal.xpValue} XP will be awarded!</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex space-x-2">
+                                    <button
+                                      onClick={() => handleTryAgain(goal.id)}
+                                      className="flex-1 py-2 px-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg text-sm font-medium transition-all duration-300 transform hover:scale-105"
+                                    >
+                                      Try Again
+                                    </button>
+                                    <button
+                                      onClick={() => setExpandedGoal(null)}
+                                      className="flex-1 py-2 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                      Close
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">

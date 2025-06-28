@@ -349,9 +349,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       // CRITICAL: Handle goal detection and immediate creation
       if (detectGoalInMessage(aiResponse.response) && !goalProposed) {
+        console.log('🎯 GOAL DETECTED: Creating goal immediately upon proposal');
         setGoalProposed(true);
         
-        // Create goal in database IMMEDIATELY when proposed
+        // CRITICAL: Create goal in database IMMEDIATELY when proposed
         try {
           const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
           const generatedGoal = await generateGoalFromConversation(conversationHistory);
@@ -370,10 +371,13 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             };
             
             await saveGoal(user.id, currentConversationId, goal);
-            console.log('Goal created immediately upon proposal:', goal.description);
+            console.log('✅ Goal created immediately upon proposal:', goal.description);
+            
+            // Force refresh of goals in sidebar by updating context
+            setContext(prev => ({ ...prev, lastGoalCreated: Date.now() }));
           }
         } catch (error) {
-          console.error('Error creating goal:', error);
+          console.error('❌ Error creating goal:', error);
         }
       }
 
@@ -620,6 +624,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                   />
                 ) : (
                   <p className="text-sm leading-relaxed">
+                    {/* CRITICAL: Remove [GOAL] tag from display but keep original content for processing */}
                     {message.content.replace('[GOAL]', '')}
                   </p>
                 )}
