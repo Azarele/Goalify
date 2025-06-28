@@ -327,6 +327,44 @@ export const getGoals = async (userId: string): Promise<{ data: Goal[] | null; e
   return result;
 };
 
+export const getSessionGoals = async (userId: string, sessionId: string): Promise<{ data: Goal[] | null; error: any; isOffline?: boolean }> => {
+  const result = await safeSupabaseOperation(async () => {
+    return await supabase!
+      .from('goals')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false });
+  });
+
+  // Return mock data if offline
+  if (result.isOffline) {
+    return {
+      data: [
+        {
+          id: 'mock-session-goal-1',
+          user_id: userId,
+          session_id: sessionId,
+          description: 'Complete session-specific goal',
+          xp_value: 20,
+          difficulty: 'medium',
+          motivation: 7,
+          completed: false,
+          completed_at: null,
+          completion_reasoning: null,
+          deadline: new Date(Date.now() + 604800000).toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      ],
+      error: null,
+      isOffline: true
+    };
+  }
+
+  return result;
+};
+
 // Achievement Operations
 export const createAchievement = async (achievement: AchievementInsert): Promise<{ data: Achievement | null; error: any; isOffline?: boolean }> => {
   const result = await safeSupabaseOperation(async () => {
