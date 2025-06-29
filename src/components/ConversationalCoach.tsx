@@ -814,10 +814,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           )}
         </div>
 
-        {/* ENHANCED: Mobile-optimized chat area with individual scrolling */}
+        {/* CRITICAL: Fixed chat area with proper individual scrolling */}
         <div 
           ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll min-h-0 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent"
+          className="flex-1 scrollable-container p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
         >
           {activeConversationMessages.map((message, index) => (
             <div key={message.id}>

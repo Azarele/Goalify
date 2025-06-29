@@ -78,7 +78,7 @@ export const StartPage: React.FC<StartPageProps> = ({
   const goalStats = getGoalStats();
 
   return (
-    <div className="flex-1 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center p-4 overflow-y-auto">
+    <div className="flex-1 scrollable-container bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center p-4">
       <div className="max-w-4xl w-full space-y-8">
         {/* Header Section */}
         <div className="text-center space-y-6">

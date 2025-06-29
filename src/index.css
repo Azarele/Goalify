@@ -8,6 +8,12 @@ body {
   font-family: 'Inter', sans-serif;
 }
 
+/* CRITICAL: Fix for mobile layout and scrolling */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* Custom scrollbar styles */
 ::-webkit-scrollbar {
   width: 6px;
@@ -526,25 +532,33 @@ input:checked + .toggle-slider:before {
   }
 }
 
-/* ENHANCED: Fix for mobile layout */
-html, body, #root {
-  height: 100%;
-  overflow: hidden;
-}
-
-/* ENHANCED: Ensure proper scrolling for individual containers */
+/* CRITICAL: Ensure proper scrolling for individual containers */
 .min-h-0 {
   min-height: 0;
 }
 
-/* ENHANCED: Ensure proper word wrapping */
+/* CRITICAL: Ensure proper word wrapping */
 .break-words {
   word-break: break-word;
 }
 
-/* ENHANCED: Ensure proper text truncation */
+/* CRITICAL: Ensure proper text truncation */
 .truncate {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* CRITICAL: Full height layout fix */
+.full-height-layout {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* CRITICAL: Scrollable container fix */
+.scrollable-container {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
 }

@@ -89,7 +89,7 @@ function MainApp() {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex flex-col">
+      <div className="full-height-layout bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="relative mx-auto w-16 h-16 mb-4">
@@ -111,7 +111,7 @@ function MainApp() {
   }
 
   const renderNavigation = () => (
-    <nav className="bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 shadow-2xl border-b border-purple-500/20 relative z-50">
+    <nav className="bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 shadow-2xl border-b border-purple-500/20 relative z-50 flex-shrink-0">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-3">
@@ -291,13 +291,13 @@ function MainApp() {
     switch (currentView) {
       case 'coaching':
         return (
-          <div className="flex-1 relative">
+          <div className="flex-1 min-h-0">
             <ConversationalCoach userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
           </div>
         );
       case 'progress':
         return (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
               <ProgressDashboard userProfile={userProfile} />
             </div>
@@ -305,7 +305,7 @@ function MainApp() {
         );
       case 'analysis':
         return (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
               <UserAnalysis userProfile={userProfile} />
             </div>
@@ -313,7 +313,7 @@ function MainApp() {
         );
       case 'settings':
         return (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
               <Settings userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
             </div>
@@ -325,7 +325,7 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex flex-col">
+    <div className="full-height-layout bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800">
       {renderNavigation()}
       {renderContent()}
       <Footer />
@@ -342,7 +342,7 @@ function App() {
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/auth" element={
-        <div className="min-h-screen flex flex-col">
+        <div className="full-height-layout">
           <div className="flex-1">
             <AuthScreen />
           </div>
