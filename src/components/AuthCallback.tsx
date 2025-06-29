@@ -80,24 +80,14 @@ export const AuthCallback: React.FC = () => {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center">
-      <div className="text-center">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center p-4">
+      <div className="text-center max-w-md">
         <div className="relative mx-auto w-16 h-16 mb-4">
-          <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+          <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl">
             <span className="text-white font-bold text-xl">G</span>
           </div>
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
         </div>
         <p className="text-purple-300 text-lg">{status}</p>
-        
-        {/* Debug info in development */}
-        {import.meta.env.DEV && (
-          <div className="mt-4 text-xs text-gray-400 max-w-md mx-auto">
-            <p className="break-all">URL: {window.location.href}</p>
-            <p className="break-all">Hash: {window.location.hash}</p>
-            <p className="break-all">Search: {window.location.search}</p>
-          </div>
-        )}
       </div>
     </div>
   );
