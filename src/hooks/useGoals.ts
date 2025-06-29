@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Goal } from '../types/coaching';
-import { getUserGoals, saveGoal, updateUserProfile } from '../services/database';
+import { getUserGoals, saveGoal, updateUserProfile, initializeUserStats } from '../services/database';
 import { useAuth } from './useAuth';
 
 export const useGoals = () => {
@@ -11,6 +11,8 @@ export const useGoals = () => {
   useEffect(() => {
     if (user) {
       loadGoals();
+      // Initialize user stats if this is a new user
+      initializeUserStats(user.id);
     } else {
       setGoals([]);
       setLoading(false);
@@ -60,7 +62,8 @@ export const useGoals = () => {
         ...updatedGoal,
         completed: true,
         completedAt: new Date(),
-        completionReasoning: reasoning
+        completionReasoning: reasoning,
+        xpValue: xpGained // Update XP value with any bonuses
       };
 
       // Update local state immediately
@@ -68,19 +71,21 @@ export const useGoals = () => {
         g.id === goalId ? completedGoal : g
       ));
 
-      // Update user profile with XP
+      // Calculate new XP and level
       const newXP = (userProfile?.totalXP || 0) + xpGained;
       const newLevel = Math.floor(newXP / 1000) + 1;
 
-      // Save to database/storage
+      // Save completed goal to database (triggers will update user_stats automatically)
       await saveGoal(user.id, '', completedGoal);
+      
+      // Update user profile with new XP and level
       await updateUserProfile(user.id, {
         ...userProfile,
         totalXP: newXP,
         level: newLevel
       });
 
-      console.log('✅ Goal completed with XP reward:', xpGained);
+      console.log('✅ Goal completed with XP reward:', xpGained, 'New total XP:', newXP);
       return { newXP, newLevel };
     } catch (error) {
       console.error('❌ Error completing goal:', error);

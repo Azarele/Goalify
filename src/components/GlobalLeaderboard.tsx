@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Crown, Trophy, Star, Medal, Award, Users, TrendingUp, Zap, Target } from 'lucide-react';
+import { Crown, Trophy, Star, Medal, Award, Users, TrendingUp, Zap, Target, Flame, BarChart3, Loader } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
-import { supabase } from '../lib/supabase';
+import { getGlobalLeaderboard, getUserRank } from '../services/database';
+import { useAuth } from '../hooks/useAuth';
 
 interface LeaderboardEntry {
   id: string;
@@ -9,7 +10,11 @@ interface LeaderboardEntry {
   level: number;
   totalXP: number;
   goalsCompleted: number;
+  goalsCreated: number;
   dailyStreak: number;
+  highestStreak: number;
+  totalSessions: number;
+  completionRate: number;
   rank: number;
 }
 
@@ -18,97 +23,48 @@ interface GlobalLeaderboardProps {
 }
 
 export const GlobalLeaderboard: React.FC<GlobalLeaderboardProps> = ({ userProfile }) => {
+  const { user } = useAuth();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeframe, setTimeframe] = useState<'all' | 'week' | 'month'>('all');
-  const [sortBy, setSortBy] = useState<'level' | 'xp' | 'goals' | 'streak'>('level');
+  const [sortBy, setSortBy] = useState<'xp' | 'goals' | 'streak'>('xp');
+  const [userRank, setUserRank] = useState<{
+    rankByXP: number;
+    rankByGoals: number;
+    rankByStreak: number;
+    totalUsers: number;
+  } | null>(null);
 
   useEffect(() => {
     loadLeaderboard();
-  }, [timeframe, sortBy]);
+    if (user) {
+      loadUserRank();
+    }
+  }, [sortBy, user]);
 
   const loadLeaderboard = async () => {
     setLoading(true);
     
     try {
-      // Generate demo leaderboard data since we don't have real user data
-      const demoUsers = generateDemoLeaderboard();
-      
-      // Add current user if they have a profile
-      if (userProfile) {
-        const userEntry: LeaderboardEntry = {
-          id: 'current-user',
-          name: userProfile.name || 'You',
-          level: userProfile.level || 1,
-          totalXP: userProfile.totalXP || 0,
-          goalsCompleted: 0, // This would come from goals data
-          dailyStreak: userProfile.dailyStreak || 0,
-          rank: 0
-        };
-        
-        demoUsers.push(userEntry);
-      }
-      
-      // Sort based on selected criteria
-      const sortedUsers = sortLeaderboard(demoUsers, sortBy);
-      
-      // Add ranks
-      const rankedUsers = sortedUsers.map((user, index) => ({
-        ...user,
-        rank: index + 1
-      }));
-      
-      setLeaderboard(rankedUsers);
+      console.log('Loading real leaderboard data...');
+      const leaderboardData = await getGlobalLeaderboard(sortBy, 50);
+      setLeaderboard(leaderboardData);
+      console.log('Leaderboard loaded:', leaderboardData.length, 'users');
     } catch (error) {
       console.error('Error loading leaderboard:', error);
-      // Fallback to demo data
-      setLeaderboard(generateDemoLeaderboard());
     } finally {
       setLoading(false);
     }
   };
 
-  const generateDemoLeaderboard = (): LeaderboardEntry[] => {
-    const demoNames = [
-      'Alex Chen', 'Sarah Johnson', 'Michael Rodriguez', 'Emma Thompson', 'David Kim',
-      'Lisa Wang', 'James Wilson', 'Maria Garcia', 'Ryan O\'Connor', 'Jessica Lee',
-      'Daniel Brown', 'Ashley Davis', 'Kevin Zhang', 'Rachel Green', 'Mark Taylor',
-      'Sophia Martinez', 'Chris Anderson', 'Amanda White', 'Tyler Johnson', 'Olivia Smith'
-    ];
+  const loadUserRank = async () => {
+    if (!user) return;
     
-    return demoNames.map((name, index) => {
-      const baseLevel = Math.max(1, 15 - index);
-      const baseXP = baseLevel * 1000 + Math.floor(Math.random() * 800);
-      const goalsCompleted = Math.floor(baseLevel * 2.5 + Math.random() * 10);
-      const dailyStreak = Math.floor(Math.random() * 50);
-      
-      return {
-        id: `demo-${index}`,
-        name,
-        level: baseLevel,
-        totalXP: baseXP,
-        goalsCompleted,
-        dailyStreak,
-        rank: index + 1
-      };
-    });
-  };
-
-  const sortLeaderboard = (users: LeaderboardEntry[], criteria: string): LeaderboardEntry[] => {
-    return [...users].sort((a, b) => {
-      switch (criteria) {
-        case 'level':
-          return b.level !== a.level ? b.level - a.level : b.totalXP - a.totalXP;
-        case 'xp':
-          return b.totalXP - a.totalXP;
-        case 'goals':
-          return b.goalsCompleted - a.goalsCompleted;
-        case 'streak':
-          return b.dailyStreak - a.dailyStreak;
-        default:
-          return b.level - a.level;
-      }
-    });
+    try {
+      const rankData = await getUserRank(user.id);
+      setUserRank(rankData);
+    } catch (error) {
+      console.error('Error loading user rank:', error);
+    }
   };
 
   const getRankIcon = (rank: number) => {
@@ -138,15 +94,43 @@ export const GlobalLeaderboard: React.FC<GlobalLeaderboardProps> = ({ userProfil
   };
 
   const getCurrentUserRank = () => {
-    return leaderboard.findIndex(user => user.id === 'current-user') + 1;
+    if (!user) return 0;
+    const userEntry = leaderboard.find(entry => entry.id === user.id);
+    return userEntry ? userEntry.rank : 0;
+  };
+
+  const getSortIcon = (sortType: string) => {
+    switch (sortType) {
+      case 'xp':
+        return <Star className="w-4 h-4" />;
+      case 'goals':
+        return <Target className="w-4 h-4" />;
+      case 'streak':
+        return <Flame className="w-4 h-4" />;
+      default:
+        return <BarChart3 className="w-4 h-4" />;
+    }
+  };
+
+  const getSortLabel = (sortType: string) => {
+    switch (sortType) {
+      case 'xp':
+        return 'Total XP';
+      case 'goals':
+        return 'Goals Completed';
+      case 'streak':
+        return 'Highest Streak';
+      default:
+        return 'Total XP';
+    }
   };
 
   if (loading) {
     return (
       <div className="p-6">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-purple-300">Loading leaderboard...</p>
+          <Loader className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-4" />
+          <p className="text-purple-300">Loading global leaderboard...</p>
         </div>
       </div>
     );
@@ -156,38 +140,44 @@ export const GlobalLeaderboard: React.FC<GlobalLeaderboardProps> = ({ userProfil
 
   return (
     <div className="p-6">
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="flex items-center space-x-2">
-          <span className="text-sm text-purple-300">Sort by:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-1 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white text-sm focus:ring-2 focus:ring-purple-500/50"
-          >
-            <option value="level">Level</option>
-            <option value="xp">Total XP</option>
-            <option value="goals">Goals Completed</option>
-            <option value="streak">Daily Streak</option>
-          </select>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center space-x-3">
+          <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
+            <Crown className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-xl font-semibold text-white">Global Leaderboard</h3>
+            <p className="text-purple-300 text-sm">Real-time rankings from all users</p>
+          </div>
         </div>
         
         <div className="flex items-center space-x-2">
-          <span className="text-sm text-purple-300">Timeframe:</span>
-          <select
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value as any)}
-            className="px-3 py-1 bg-slate-700/50 border border-purple-500/30 rounded-lg text-white text-sm focus:ring-2 focus:ring-purple-500/50"
-          >
-            <option value="all">All Time</option>
-            <option value="month">This Month</option>
-            <option value="week">This Week</option>
-          </select>
+          <Users className="w-4 h-4 text-purple-400" />
+          <span className="text-purple-300 text-sm">{leaderboard.length} active users</span>
         </div>
       </div>
 
+      {/* Sort Controls */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {(['xp', 'goals', 'streak'] as const).map((sortType) => (
+          <button
+            key={sortType}
+            onClick={() => setSortBy(sortType)}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+              sortBy === sortType
+                ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 text-purple-200 border border-purple-400/50'
+                : 'bg-slate-700/30 text-purple-300 hover:bg-slate-600/40 border border-slate-600/30'
+            }`}
+          >
+            {getSortIcon(sortType)}
+            <span className="text-sm">{getSortLabel(sortType)}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Current User Highlight */}
-      {currentUserRank > 0 && (
+      {currentUserRank > 0 && userProfile && (
         <div className="mb-6 p-4 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-500/30">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -198,112 +188,134 @@ export const GlobalLeaderboard: React.FC<GlobalLeaderboardProps> = ({ userProfil
             </div>
             <div className="flex items-center space-x-4 text-sm">
               <div className="text-center">
-                <div className="text-white font-bold">Level {userProfile?.level || 1}</div>
+                <div className="text-white font-bold">Level {userProfile.level || 1}</div>
                 <div className="text-purple-300 text-xs">Level</div>
               </div>
               <div className="text-center">
-                <div className="text-white font-bold">{userProfile?.totalXP || 0}</div>
+                <div className="text-white font-bold">{userProfile.totalXP || 0}</div>
                 <div className="text-purple-300 text-xs">XP</div>
               </div>
               <div className="text-center">
-                <div className="text-white font-bold">{userProfile?.dailyStreak || 0}</div>
+                <div className="text-white font-bold">{userProfile.dailyStreak || 0}</div>
                 <div className="text-purple-300 text-xs">Streak</div>
               </div>
             </div>
           </div>
+          
+          {userRank && (
+            <div className="mt-3 grid grid-cols-3 gap-4 text-xs">
+              <div className="text-center">
+                <div className="text-purple-200">XP Rank: #{userRank.rankByXP}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-purple-200">Goals Rank: #{userRank.rankByGoals}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-purple-200">Streak Rank: #{userRank.rankByStreak}</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Leaderboard List */}
       <div className="space-y-2">
-        {leaderboard.slice(0, 20).map((user) => (
-          <div
-            key={user.id}
-            className={`p-4 rounded-lg border transition-all duration-300 ${
-              user.id === 'current-user'
-                ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 border-purple-400/50 ring-2 ring-purple-400/30'
-                : `bg-gradient-to-r ${getRankColor(user.rank)} hover:bg-opacity-80`
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center justify-center w-8 h-8">
-                  {getRankIcon(user.rank)}
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    user.rank <= 3 ? 'bg-gradient-to-br from-yellow-400 to-orange-500' : 'bg-gradient-to-br from-purple-500 to-pink-500'
-                  }`}>
-                    <span className="text-white font-bold text-sm">
-                      {user.name.charAt(0).toUpperCase()}
-                    </span>
+        {leaderboard.length === 0 ? (
+          <div className="text-center py-8">
+            <Trophy className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
+            <h3 className="text-lg font-medium text-white mb-2">No rankings yet</h3>
+            <p className="text-purple-300">Be the first to complete goals and climb the leaderboard!</p>
+          </div>
+        ) : (
+          leaderboard.map((entry) => (
+            <div
+              key={entry.id}
+              className={`p-4 rounded-lg border transition-all duration-300 ${
+                user && entry.id === user.id
+                  ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 border-purple-400/50 ring-2 ring-purple-400/30'
+                  : `bg-gradient-to-r ${getRankColor(entry.rank)} hover:bg-opacity-80`
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center justify-center w-8 h-8">
+                    {getRankIcon(entry.rank)}
                   </div>
                   
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`font-medium ${user.id === 'current-user' ? 'text-purple-200' : 'text-white'}`}>
-                        {user.name}
-                        {user.id === 'current-user' && (
-                          <span className="ml-2 text-xs bg-purple-500/30 text-purple-200 px-2 py-1 rounded-full">
-                            You
-                          </span>
-                        )}
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      entry.rank <= 3 ? 'bg-gradient-to-br from-yellow-400 to-orange-500' : 'bg-gradient-to-br from-purple-500 to-pink-500'
+                    }`}>
+                      <span className="text-white font-bold text-sm">
+                        {entry.name.charAt(0).toUpperCase()}
                       </span>
                     </div>
-                    <div className="text-xs text-purple-300">
-                      Level {user.level} • {user.totalXP} XP
+                    
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`font-medium ${user && entry.id === user.id ? 'text-purple-200' : 'text-white'}`}>
+                          {entry.name}
+                          {user && entry.id === user.id && (
+                            <span className="ml-2 text-xs bg-purple-500/30 text-purple-200 px-2 py-1 rounded-full">
+                              You
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="text-xs text-purple-300">
+                        Level {entry.level} • {entry.totalXP} XP • {entry.completionRate}% success rate
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              
-              <div className="flex items-center space-x-6 text-sm">
-                <div className="text-center">
-                  <div className="flex items-center space-x-1">
-                    <Trophy className="w-3 h-3 text-yellow-400" />
-                    <span className="text-white font-medium">{user.level}</span>
-                  </div>
-                  <div className="text-purple-300 text-xs">Level</div>
-                </div>
                 
-                <div className="text-center">
-                  <div className="flex items-center space-x-1">
-                    <Star className="w-3 h-3 text-purple-400" />
-                    <span className="text-white font-medium">{user.totalXP}</span>
+                <div className="flex items-center space-x-6 text-sm">
+                  <div className="text-center">
+                    <div className="flex items-center space-x-1">
+                      <Star className="w-3 h-3 text-purple-400" />
+                      <span className="text-white font-medium">{entry.totalXP}</span>
+                    </div>
+                    <div className="text-purple-300 text-xs">XP</div>
                   </div>
-                  <div className="text-purple-300 text-xs">XP</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="flex items-center space-x-1">
-                    <Target className="w-3 h-3 text-green-400" />
-                    <span className="text-white font-medium">{user.goalsCompleted}</span>
+                  
+                  <div className="text-center">
+                    <div className="flex items-center space-x-1">
+                      <Target className="w-3 h-3 text-green-400" />
+                      <span className="text-white font-medium">{entry.goalsCompleted}</span>
+                    </div>
+                    <div className="text-purple-300 text-xs">Goals</div>
                   </div>
-                  <div className="text-purple-300 text-xs">Goals</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="flex items-center space-x-1">
-                    <Zap className="w-3 h-3 text-orange-400" />
-                    <span className="text-white font-medium">{user.dailyStreak}</span>
+                  
+                  <div className="text-center">
+                    <div className="flex items-center space-x-1">
+                      <Flame className="w-3 h-3 text-orange-400" />
+                      <span className="text-white font-medium">{entry.highestStreak}</span>
+                    </div>
+                    <div className="text-purple-300 text-xs">Best Streak</div>
                   </div>
-                  <div className="text-purple-300 text-xs">Streak</div>
+                  
+                  <div className="text-center">
+                    <div className="flex items-center space-x-1">
+                      <TrendingUp className="w-3 h-3 text-blue-400" />
+                      <span className="text-white font-medium">{entry.totalSessions}</span>
+                    </div>
+                    <div className="text-purple-300 text-xs">Sessions</div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Footer */}
       <div className="mt-6 text-center">
         <div className="flex items-center justify-center space-x-2 text-sm text-purple-400">
           <Users className="w-4 h-4" />
-          <span>Showing top 20 users • Updated in real-time</span>
+          <span>Real-time rankings • Updated automatically</span>
         </div>
         <p className="text-xs text-purple-500 mt-2">
-          Complete more goals and maintain your streak to climb the leaderboard!
+          Complete goals, maintain streaks, and engage regularly to climb the leaderboard!
         </p>
       </div>
     </div>

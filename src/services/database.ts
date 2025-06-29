@@ -302,14 +302,19 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
   }
 };
 
-// Global Leaderboard Operations
-export const getGlobalLeaderboard = async (): Promise<Array<{
+// ENHANCED: Real Global Leaderboard Operations
+export const getGlobalLeaderboard = async (sortBy: 'xp' | 'goals' | 'streak' = 'xp', limit: number = 50): Promise<Array<{
   id: string;
   name: string;
   level: number;
   totalXP: number;
   goalsCompleted: number;
+  goalsCreated: number;
   dailyStreak: number;
+  highestStreak: number;
+  totalSessions: number;
+  completionRate: number;
+  rank: number;
 }>> => {
   const client = checkSupabase();
   
@@ -319,43 +324,137 @@ export const getGlobalLeaderboard = async (): Promise<Array<{
   }
 
   try {
-    console.log('Fetching global leaderboard');
+    console.log('Fetching real global leaderboard, sorted by:', sortBy);
     
-    const { data, error } = await client
-      .from('user_profiles')
-      .select(`
-        id,
-        name,
-        level,
-        total_xp,
-        daily_streak,
-        user_id
-      `)
-      .order('level', { ascending: false })
-      .order('total_xp', { ascending: false })
-      .limit(50);
+    const { data, error } = await client.rpc('get_global_leaderboard', { 
+      limit_count: limit 
+    });
 
     if (error) {
-      handleSupabaseError(error, 'getGlobalLeaderboard');
+      console.error('Error fetching leaderboard:', error);
       return generateDemoLeaderboard();
     }
 
-    // For each user, we'd need to count their completed goals
-    // For now, we'll use a simplified approach
-    const leaderboard = (data || []).map(user => ({
+    if (!data || data.length === 0) {
+      console.log('No leaderboard data found, returning demo data');
+      return generateDemoLeaderboard();
+    }
+
+    // Transform and sort the data based on the sortBy parameter
+    const leaderboard = data.map((user: any, index: number) => ({
       id: user.user_id,
       name: user.name || 'Anonymous User',
       level: user.level || 1,
       totalXP: user.total_xp || 0,
-      goalsCompleted: Math.floor((user.total_xp || 0) / 50), // Estimate based on average XP per goal
+      goalsCompleted: user.goals_completed || 0,
+      goalsCreated: user.goals_created || 0,
       dailyStreak: user.daily_streak || 0,
+      highestStreak: user.highest_streak || 0,
+      totalSessions: user.total_sessions || 0,
+      completionRate: user.completion_rate || 0,
+      rank: sortBy === 'xp' ? user.rank_by_xp : 
+            sortBy === 'goals' ? user.rank_by_goals : 
+            user.rank_by_streak
     }));
 
-    console.log('Global leaderboard loaded:', leaderboard.length, 'users');
-    return leaderboard;
+    // Sort based on the selected criteria
+    const sortedLeaderboard = leaderboard.sort((a, b) => {
+      switch (sortBy) {
+        case 'xp':
+          return b.totalXP !== a.totalXP ? b.totalXP - a.totalXP : b.goalsCompleted - a.goalsCompleted;
+        case 'goals':
+          return b.goalsCompleted !== a.goalsCompleted ? b.goalsCompleted - a.goalsCompleted : b.totalXP - a.totalXP;
+        case 'streak':
+          return b.highestStreak !== a.highestStreak ? b.highestStreak - a.highestStreak : b.totalXP - a.totalXP;
+        default:
+          return b.totalXP - a.totalXP;
+      }
+    });
+
+    // Update ranks after sorting
+    const rankedLeaderboard = sortedLeaderboard.map((user, index) => ({
+      ...user,
+      rank: index + 1
+    }));
+
+    console.log('Real leaderboard loaded:', rankedLeaderboard.length, 'users');
+    return rankedLeaderboard;
   } catch (error) {
     console.error('Error in getGlobalLeaderboard:', error);
     return generateDemoLeaderboard();
+  }
+};
+
+// Get user's current rank
+export const getUserRank = async (userId: string): Promise<{
+  rankByXP: number;
+  rankByGoals: number;
+  rankByStreak: number;
+  totalUsers: number;
+} | null> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    return {
+      rankByXP: Math.floor(Math.random() * 100) + 1,
+      rankByGoals: Math.floor(Math.random() * 100) + 1,
+      rankByStreak: Math.floor(Math.random() * 100) + 1,
+      totalUsers: 150
+    };
+  }
+
+  try {
+    const { data, error } = await client.rpc('get_user_rank', { 
+      target_user_id: userId 
+    });
+
+    if (error) {
+      console.error('Error fetching user rank:', error);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    const rankData = data[0];
+    return {
+      rankByXP: rankData.rank_by_xp || 999,
+      rankByGoals: rankData.rank_by_goals || 999,
+      rankByStreak: rankData.rank_by_streak || 999,
+      totalUsers: rankData.total_users || 0
+    };
+  } catch (error) {
+    console.error('Error in getUserRank:', error);
+    return null;
+  }
+};
+
+// Initialize user stats (call this when creating a new user)
+export const initializeUserStats = async (userId: string): Promise<void> => {
+  const client = checkSupabase();
+  
+  if (!client) return;
+
+  try {
+    const { error } = await client
+      .from('user_stats')
+      .insert({
+        user_id: userId,
+        total_goals_created: 0,
+        total_goals_completed: 0,
+        total_xp_earned: 0,
+        highest_streak: 0,
+        total_sessions: 0
+      });
+
+    if (error && error.code !== '23505') { // Ignore duplicate key errors
+      console.error('Error initializing user stats:', error);
+    } else {
+      console.log('User stats initialized for:', userId);
+    }
+  } catch (error) {
+    console.error('Error in initializeUserStats:', error);
   }
 };
 
@@ -371,7 +470,11 @@ const generateDemoLeaderboard = () => {
     const baseLevel = Math.max(1, 15 - index);
     const baseXP = baseLevel * 1000 + Math.floor(Math.random() * 800);
     const goalsCompleted = Math.floor(baseLevel * 2.5 + Math.random() * 10);
+    const goalsCreated = goalsCompleted + Math.floor(Math.random() * 5);
     const dailyStreak = Math.floor(Math.random() * 50);
+    const highestStreak = dailyStreak + Math.floor(Math.random() * 20);
+    const totalSessions = Math.floor(baseLevel * 1.5 + Math.random() * 8);
+    const completionRate = goalsCreated > 0 ? Math.round((goalsCompleted / goalsCreated) * 100) : 0;
     
     return {
       id: `demo-${index}`,
@@ -379,7 +482,12 @@ const generateDemoLeaderboard = () => {
       level: baseLevel,
       totalXP: baseXP,
       goalsCompleted,
+      goalsCreated,
       dailyStreak,
+      highestStreak,
+      totalSessions,
+      completionRate,
+      rank: index + 1
     };
   });
 };
@@ -666,7 +774,7 @@ export const updateConversation = async (conversationId: string, updates: {
   }
 };
 
-// Enhanced Goal Operations with Local Storage Fallback and Memory Persistence
+// Enhanced Goal Operations with Persistent Stats
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   const client = checkSupabase();
   
