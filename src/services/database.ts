@@ -584,195 +584,11 @@ export const updateConversation = async (conversationId: string, updates: {
   }
 };
 
-// Legacy Session Operations (for backward compatibility)
-export const saveSession = async (userId: string, session: CoachingSession): Promise<void> => {
-  const client = checkSupabase();
-  
-  if (!client) {
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    const sessionIndex = localSessions.findIndex((s: any) => s.id === session.id);
-    
-    const sessionToStore = {
-      ...session,
-      date: session.date.toISOString()
-    };
-    
-    if (sessionIndex >= 0) {
-      localSessions[sessionIndex] = sessionToStore;
-    } else {
-      localSessions.push(sessionToStore);
-    }
-    
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
-    console.log('Session saved to local storage');
-    return;
-  }
-
-  try {
-    console.log('Saving session:', session.id, 'for user:', userId);
-    
-    const sessionData = {
-      id: session.id,
-      user_id: userId,
-      title: session.summary || `Session ${new Date().toLocaleDateString()}`,
-      messages: session.messages || [],
-      completed: session.completed || false,
-      summary: session.summary || null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await client
-      .from('coaching_sessions')
-      .upsert(sessionData);
-
-    if (error) {
-      handleSupabaseError(error, 'saveSession');
-      throw error;
-    }
-
-    console.log('Session saved successfully');
-  } catch (error) {
-    console.error('Error in saveSession:', error);
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    const sessionIndex = localSessions.findIndex((s: any) => s.id === session.id);
-    
-    const sessionToStore = {
-      ...session,
-      date: session.date.toISOString()
-    };
-    
-    if (sessionIndex >= 0) {
-      localSessions[sessionIndex] = sessionToStore;
-    } else {
-      localSessions.push(sessionToStore);
-    }
-    
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
-    console.log('Session saved to local storage as fallback');
-  }
-};
-
-export const getUserSessions = async (userId: string): Promise<CoachingSession[]> => {
-  const client = checkSupabase();
-  
-  if (!client) {
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    return localSessions.map((session: any) => ({
-      ...session,
-      date: new Date(session.date)
-    }));
-  }
-
-  try {
-    console.log('Fetching sessions for user:', userId);
-    
-    const { data, error } = await client
-      .from('coaching_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      handleSupabaseError(error, 'getUserSessions');
-      return [];
-    }
-
-    console.log('Fetched', data?.length || 0, 'sessions');
-
-    const sessions = (data || []).map(session => ({
-      id: session.id,
-      date: new Date(session.created_at),
-      messages: session.messages || [],
-      goals: [],
-      insights: [],
-      actions: [],
-      completed: session.completed || false,
-      summary: session.summary,
-    }));
-
-    // Cache in local storage
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(sessions.map(session => ({
-      ...session,
-      date: session.date.toISOString()
-    }))));
-
-    return sessions;
-  } catch (error) {
-    console.error('Error in getUserSessions:', error);
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    return localSessions.map((session: any) => ({
-      ...session,
-      date: new Date(session.date)
-    }));
-  }
-};
-
-export const getSession = async (userId: string, sessionId: string): Promise<CoachingSession | null> => {
-  const client = checkSupabase();
-  
-  if (!client) {
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    const session = localSessions.find((s: any) => s.id === sessionId);
-    return session ? { ...session, date: new Date(session.date) } : null;
-  }
-
-  try {
-    const { data, error } = await client
-      .from('coaching_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('id', sessionId)
-      .single();
-
-    if (error) {
-      handleSupabaseError(error, 'getSession');
-      return null;
-    }
-
-    const session = {
-      id: data.id,
-      date: new Date(data.created_at),
-      messages: data.messages || [],
-      goals: [],
-      insights: [],
-      actions: [],
-      completed: data.completed || false,
-      summary: data.summary,
-    };
-
-    // Cache in local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    const sessionIndex = localSessions.findIndex((s: any) => s.id === sessionId);
-    const sessionToStore = { ...session, date: session.date.toISOString() };
-    
-    if (sessionIndex >= 0) {
-      localSessions[sessionIndex] = sessionToStore;
-    } else {
-      localSessions.push(sessionToStore);
-    }
-    
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
-
-    return session;
-  } catch (error) {
-    console.error('Error in getSession:', error);
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    const session = localSessions.find((s: any) => s.id === sessionId);
-    return session ? { ...session, date: new Date(session.date) } : null;
-  }
-};
-
-// CRITICAL: Enhanced Goal Operations with Local Storage Fallback and Memory Persistence
+// Enhanced Goal Operations with Local Storage Fallback and Memory Persistence
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   const client = checkSupabase();
   
-  // CRITICAL: Always save to local storage first for immediate availability
+  // Always save to local storage first for immediate availability
   const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
   const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
   
@@ -833,89 +649,10 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
   }
 };
 
-export const getSessionGoals = async (userId: string, sessionId: string): Promise<Goal[]> => {
-  const client = checkSupabase();
-  
-  // CRITICAL: Always check local storage first for immediate availability
-  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-  const sessionGoalsFromLocal = localGoals
-    .filter((goal: any) => goal.sessionId === sessionId)
-    .map((goal: any) => ({
-      ...goal,
-      createdAt: new Date(goal.createdAt),
-      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined
-    }));
-
-  if (!client) {
-    console.log('⚠️ Supabase not available, returning goals from local storage:', sessionGoalsFromLocal.length);
-    return sessionGoalsFromLocal;
-  }
-
-  try {
-    const { data, error } = await client
-      .from('goals')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('❌ Database fetch failed, using local storage:', error);
-      return sessionGoalsFromLocal;
-    }
-
-    const goalsFromDB = (data || []).map(goal => ({
-      id: goal.id,
-      description: goal.description,
-      xpValue: goal.xp_value || 50,
-      difficulty: goal.difficulty || 'medium',
-      motivation: goal.motivation || 5,
-      completed: goal.completed || false,
-      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
-      completionReasoning: goal.completion_reasoning || undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
-      createdAt: new Date(goal.created_at),
-    }));
-
-    // Merge with local storage and update cache
-    const mergedGoals = [...goalsFromDB];
-    
-    // Add any local goals not in database
-    localGoals.forEach((localGoal: any) => {
-      if (localGoal.sessionId === sessionId && !mergedGoals.find(g => g.id === localGoal.id)) {
-        mergedGoals.push({
-          ...localGoal,
-          createdAt: new Date(localGoal.createdAt),
-          completedAt: localGoal.completedAt ? new Date(localGoal.completedAt) : undefined,
-          deadline: localGoal.deadline ? new Date(localGoal.deadline) : undefined
-        });
-      }
-    });
-
-    // Update local storage with merged data
-    const allLocalGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    const otherGoals = allLocalGoals.filter((g: any) => g.sessionId !== sessionId);
-    const sessionGoalsToStore = mergedGoals.map(goal => ({
-      ...goal,
-      sessionId,
-      createdAt: goal.createdAt.toISOString(),
-      completedAt: goal.completedAt?.toISOString() || null,
-      deadline: goal.deadline?.toISOString() || null
-    }));
-    localStorage.setItem(`goals_${userId}`, JSON.stringify([...otherGoals, ...sessionGoalsToStore]));
-
-    return mergedGoals;
-  } catch (error) {
-    console.error('❌ Error fetching session goals from database, using local storage:', error);
-    return sessionGoalsFromLocal;
-  }
-};
-
 export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   const client = checkSupabase();
   
-  // CRITICAL: Always check local storage first for immediate availability
+  // Always check local storage first for immediate availability
   const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
   const goalsFromLocal = localGoals.map((goal: any) => ({
     ...goal,
@@ -985,12 +722,7 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   }
 };
 
-// CRITICAL: New function to get all user goals across all sessions with memory persistence
-export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
-  return getUserGoals(userId); // Same implementation for now
-};
-
-// CRITICAL: Enhanced Daily Streak Operations with proper date handling
+// Enhanced Daily Streak Operations with proper date handling
 export const updateDailyStreak = async (userId: string): Promise<number> => {
   try {
     const profile = await getUserProfile(userId);
@@ -1036,3 +768,9 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
     return 0;
   }
 };
+
+// Remove redundant functions - keeping only essential ones
+export const getAllUserGoals = getUserGoals; // Alias for consistency
+
+// Remove legacy session operations to reduce redundancy
+// These are no longer needed as we use conversations instead

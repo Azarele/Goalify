@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame } from 'lucide-react';
-import { getUserSessions, getUserConversations } from '../services/database';
+import { getUserConversations } from '../services/database';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
 import { useGoals } from '../hooks/useGoals';
@@ -12,7 +12,6 @@ interface ProgressDashboardProps {
 export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfile }) => {
   const { user } = useAuth();
   const { goals, loading: goalsLoading, getGoalStats } = useGoals();
-  const [sessions, setSessions] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -27,12 +26,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     }
 
     try {
-      const [sessionsData, conversationsData] = await Promise.all([
-        getUserSessions(user.id),
-        getUserConversations(user.id)
-      ]);
-      
-      setSessions(sessionsData);
+      const conversationsData = await getUserConversations(user.id);
       setConversations(conversationsData);
     } catch (error) {
       console.error('Error loading progress data:', error);
@@ -51,12 +45,12 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     const lastWeek = new Date();
     lastWeek.setDate(lastWeek.getDate() - 7);
     
-    const recentSessions = sessions.filter(s => s.date > lastWeek);
+    const recentConversations = conversations.filter(c => c.updated_at > lastWeek);
     const recentGoals = goals.filter(g => g.createdAt > lastWeek);
     const recentCompletions = goals.filter(g => g.completed && g.completedAt && g.completedAt > lastWeek);
     
     return {
-      sessions: recentSessions.length,
+      sessions: recentConversations.length,
       goals: recentGoals.length,
       completed: recentCompletions.length,
       xpGained: recentCompletions.reduce((sum, g) => sum + (g.xpValue || 0), 0)

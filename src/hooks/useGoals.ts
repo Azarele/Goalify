@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Goal } from '../types/coaching';
-import { getAllUserGoals, saveGoal, updateUserProfile } from '../services/database';
+import { getUserGoals, saveGoal, updateUserProfile } from '../services/database';
 import { useAuth } from './useAuth';
 
 export const useGoals = () => {
@@ -22,24 +22,9 @@ export const useGoals = () => {
 
     try {
       setLoading(true);
-      const userGoals = await getAllUserGoals(user.id);
+      const userGoals = await getUserGoals(user.id);
       setGoals(userGoals);
       console.log('✅ Goals loaded in useGoals hook:', userGoals.length, 'goals');
-      
-      // Log goal details for debugging
-      if (userGoals.length > 0) {
-        console.log('📊 Goal breakdown:', {
-          total: userGoals.length,
-          completed: userGoals.filter(g => g.completed).length,
-          pending: userGoals.filter(g => !g.completed).length,
-          overdue: userGoals.filter(g => !g.completed && g.deadline && g.deadline < new Date()).length,
-          recent: userGoals.slice(0, 3).map(g => ({ 
-            id: g.id.substring(0, 8), 
-            description: g.description.substring(0, 30) + '...', 
-            completed: g.completed 
-          }))
-        });
-      }
     } catch (error) {
       console.error('❌ Error loading goals:', error);
     } finally {
@@ -51,7 +36,7 @@ export const useGoals = () => {
     if (!user) return;
 
     try {
-      // CRITICAL: Add to local state immediately for instant UI update
+      // Add to local state immediately for instant UI update
       setGoals(prev => [goal, ...prev]);
       console.log('✅ Goal added to local state immediately:', goal.description);
       
@@ -78,7 +63,7 @@ export const useGoals = () => {
         completionReasoning: reasoning
       };
 
-      // CRITICAL: Update local state immediately
+      // Update local state immediately
       setGoals(prev => prev.map(g => 
         g.id === goalId ? completedGoal : g
       ));
@@ -137,19 +122,12 @@ export const useGoals = () => {
     };
   };
 
-  // CRITICAL: Force refresh goals from database
-  const refreshGoals = async () => {
-    console.log('🔄 Forcing goal refresh...');
-    await loadGoals();
-  };
-
   return {
     goals,
     loading,
     addGoal,
     completeGoal,
     loadGoals,
-    refreshGoals,
     getGoalStats
   };
 };

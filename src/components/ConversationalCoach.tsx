@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target, X, CheckCircle, XCircle, ArrowRight, Pause } from 'lucide-react';
+import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Clock, Target, X, CheckCircle, XCircle, ArrowRight, Pause } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
@@ -33,13 +33,13 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   onProfileUpdate
 }) => {
   const { user } = useAuth();
-  const { goals, addGoal, completeGoal, loadGoals, getGoalStats } = useGoals();
+  const { goals, addGoal, getGoalStats } = useGoals();
   
   // Core conversation state
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
-  // CRITICAL: Enhanced AI State Machine with structured coaching cycle
+  // AI State Machine
   const [aiState, setAiState] = useState<AIState>('COACHING_Q1');
   const [goalProposed, setGoalProposed] = useState(false);
   const [userAcceptedGoal, setUserAcceptedGoal] = useState(false);
@@ -72,7 +72,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
   
   const {
     transcript,
@@ -99,14 +98,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // CRITICAL: Load goals when conversation changes to maintain memory
-  useEffect(() => {
-    if (currentConversationId && user) {
-      loadGoals();
-    }
-  }, [currentConversationId, user]);
-
-  // CRITICAL: Idle detection - show continue/close options after 2 minutes of inactivity
+  // Idle detection - show continue/close options after 2 minutes of inactivity
   useEffect(() => {
     const resetIdleTimer = () => {
       if (idleTimer) {
@@ -125,7 +117,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       }
     };
 
-    // Reset timer on any user activity
     resetIdleTimer();
 
     return () => {
@@ -191,7 +182,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const analyzeAIStateFromMessages = (messages: Message[]) => {
     const assistantMessages = messages.filter(m => m.role === 'assistant');
-    const userMessages = messages.filter(m => m.role === 'user');
     
     // Count coaching questions (not including goal propositions)
     const coachingQuestions = assistantMessages.filter(m => 
@@ -341,18 +331,17 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  // CRITICAL: Enhanced goal detection and handling
+  // Goal detection and handling
   const detectGoalInMessage = (content: string): boolean => {
     return content.includes('[GOAL]');
   };
 
   const extractGoalFromMessage = (content: string): string => {
-    // Extract goal description after "[GOAL]" tag and "Can I suggest a challenge based on our conversation?"
     const goalMatch = content.match(/\[GOAL\].*?Can I suggest a challenge based on our conversation\?\s*(.+)/);
     return goalMatch ? goalMatch[1].trim() : content.replace('[GOAL]', '').trim();
   };
 
-  // CRITICAL: Create goal object with proper structure
+  // Create goal object with proper structure
   const createGoalFromDescription = (description: string): PendingGoal => {
     // Calculate deadline based on goal complexity
     const deadline = new Date();
@@ -385,7 +374,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  // CRITICAL: Handle goal acceptance/decline with proper goal creation and continuation options
+  // Handle goal acceptance/decline with proper goal creation
   const handleGoalResponse = async (accepted: boolean) => {
     if (!pendingGoal || !currentConversationId || !user) return;
 
@@ -404,7 +393,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // CRITICAL: Create and add goal to global goals system IMMEDIATELY
+        // Create and add goal to global goals system IMMEDIATELY
         const newGoal = {
           id: pendingGoal.id,
           description: pendingGoal.description,
@@ -498,7 +487,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  // CRITICAL: Handle continuation choice after goal acceptance
+  // Handle continuation choice after goal acceptance
   const handleContinueChoice = async (continueConversation: boolean) => {
     setShowContinueOptions(false);
     
@@ -533,7 +522,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  // CRITICAL: Handle idle conversation options
+  // Handle idle conversation options
   const handleIdleChoice = async (continueConversation: boolean) => {
     setIsIdle(false);
     
@@ -569,82 +558,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  // CRITICAL: Goal completion handler with XP rewards
-  const handleGoalCompletion = async (goalId: string, reasoning: string) => {
-    if (!user || !userProfile) return;
-
-    const goal = goals.find(g => g.id === goalId);
-    if (!goal) return;
-
-    try {
-      // Calculate XP with time bonus/penalty
-      const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline, goal.createdAt) : null;
-      let xpMultiplier = 1.0;
-      
-      if (timeInfo && !timeInfo.isOverdue) {
-        // Bonus for completing early
-        if (timeInfo.percentage > 75) xpMultiplier = 1.5;
-        else if (timeInfo.percentage > 50) xpMultiplier = 1.3;
-        else if (timeInfo.percentage > 25) xpMultiplier = 1.1;
-      } else if (timeInfo?.isOverdue) {
-        // Penalty for being overdue
-        xpMultiplier = 0.7;
-      }
-
-      const finalXP = Math.round(goal.xpValue * xpMultiplier);
-      
-      // Complete goal and update profile
-      const result = await completeGoal(goalId, reasoning, finalXP, userProfile);
-      
-      if (result) {
-        // Update local profile state
-        onProfileUpdate({
-          ...userProfile,
-          totalXP: result.newXP,
-          level: result.newLevel
-        });
-
-        // Show XP animation
-        setXpGained(finalXP);
-        setShowXPAnimation(true);
-        setTimeout(() => setShowXPAnimation(false), 3000);
-      }
-      
-      console.log('Goal completed with XP reward:', finalXP);
-    } catch (error) {
-      console.error('Error completing goal:', error);
-    }
-  };
-
-  // Helper function for time calculations
-  const getTimeRemaining = (deadline: Date, createdAt: Date) => {
-    const now = new Date();
-    const timeLeft = deadline.getTime() - now.getTime();
-    
-    if (timeLeft <= 0) {
-      return {
-        timeLeft: 'Overdue',
-        percentage: 0,
-        isOverdue: true,
-        totalHours: 0,
-        remainingHours: 0
-      };
-    }
-
-    const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-    const totalTime = deadline.getTime() - createdAt.getTime();
-    const totalHours = Math.floor(totalTime / (1000 * 60 * 60));
-    const percentage = totalHours > 0 ? Math.max(0, (timeLeft / totalTime) * 100) : 0;
-
-    return {
-      timeLeft: `${hours}h`,
-      percentage,
-      isOverdue: false,
-      totalHours,
-      remainingHours: hours
-    };
-  };
-
   const sendMessage = async (content: string, isVoice = false) => {
     if (!content.trim() || isLoading || !user || !currentConversationId) return;
 
@@ -670,7 +583,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
-      // CRITICAL: Enhanced context for AI with structured coaching cycle and goal memory
+      // Enhanced context for AI with structured coaching cycle and goal memory
       const goalStats = getGoalStats();
       let contextForAI = {
         userName: userProfile?.name,
@@ -705,7 +618,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       let finalMessages = [...newMessages, assistantMessage];
 
-      // CRITICAL: Handle goal proposition with pending state
+      // Handle goal proposition with pending state
       if (detectGoalInMessage(aiResponse.response)) {
         console.log('🎯 GOAL DETECTED: Setting up pending goal for user response');
         setGoalProposed(true);
@@ -923,7 +836,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             )}
             
             <div className="flex items-center space-x-1">
-              {/* CRITICAL: End Chat Button - Only appears after multiple goals */}
+              {/* End Chat Button - Only appears after multiple goals */}
               {showEndChatButton && goalStats.pending >= 2 && (
                 <button
                   onClick={handleEndChat}
@@ -972,10 +885,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           )}
         </div>
 
-        <div 
-          ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
-        >
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll">
           {activeConversationMessages.map((message, index) => (
             <div key={message.id}>
               <div
@@ -996,7 +906,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                     />
                   ) : (
                     <p className="text-sm leading-relaxed">
-                      {/* CRITICAL: Remove [GOAL] tag from display but keep original content for processing */}
                       {message.content.replace('[GOAL]', '')}
                     </p>
                   )}
@@ -1015,7 +924,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               </div>
 
-              {/* CRITICAL: Goal Accept/Decline Buttons */}
+              {/* Goal Accept/Decline Buttons */}
               {pendingGoal && pendingGoal.messageId === message.id && (
                 <div className="flex justify-start mt-4 animate-fade-in">
                   <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-4 border border-blue-500/20 backdrop-blur-sm">
@@ -1040,7 +949,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               )}
 
-              {/* CRITICAL: Continue/End Options after goal acceptance */}
+              {/* Continue/End Options after goal acceptance */}
               {showContinueOptions && index === activeConversationMessages.length - 1 && (
                 <div className="flex justify-start mt-4 animate-fade-in">
                   <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-xl p-4 border border-green-500/20 backdrop-blur-sm">
@@ -1065,7 +974,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               )}
 
-              {/* CRITICAL: Idle Options - Show after 2 minutes of inactivity */}
+              {/* Idle Options - Show after 2 minutes of inactivity */}
               {isIdle && index === activeConversationMessages.length - 1 && !showContinueOptions && !pendingGoal && (
                 <div className="flex justify-start mt-4 animate-fade-in">
                   <div className="bg-gradient-to-r from-orange-500/10 to-yellow-500/10 rounded-xl p-4 border border-orange-500/20 backdrop-blur-sm">

@@ -4,12 +4,14 @@ Your AI coaching companion for meaningful conversations and personal growth. Tal
 
 ## Features
 
-- 🤖 AI-powered coaching conversations
-- 🎯 Goal setting and tracking
-- 📊 Progress dashboard with XP and levels
-- 🔥 Daily streak tracking
-- 🎤 Voice input and output (optional)
-- 📱 Responsive design for all devices
+- 🤖 AI-powered coaching conversations with structured GROW methodology
+- 🎯 Smart goal creation and tracking with XP rewards
+- 📊 Progress dashboard with levels, streaks, and achievements
+- 🔥 Daily streak tracking to maintain momentum
+- 🎤 Voice input and output (optional with ElevenLabs)
+- 📱 Responsive design optimized for all devices
+- 💾 Robust local storage fallback for offline functionality
+- ⚡ Real-time goal completion with AI verification
 
 ## Environment Variables
 
@@ -71,13 +73,54 @@ VITE_VOICE_ID=your_preferred_voice_id
 
 The app uses Supabase for authentication and data storage. The database schema is automatically created using the migration files in the `supabase/migrations/` directory.
 
+## Key Features
+
+### AI Coaching System
+- **Structured GROW Methodology**: Goal, Reality, Options, Way forward
+- **3-Question Coaching Cycles**: AI asks exactly 3 questions before proposing goals
+- **Goal Memory**: AI remembers all user goals across sessions
+- **Smart Goal Creation**: Automatic difficulty and XP calculation
+- **Idle Detection**: Prompts users after 2 minutes of inactivity
+
+### Goal Management
+- **Real-time Goal Tracking**: Goals appear instantly in the sidebar
+- **AI Verification**: Goals must be verified with detailed explanations
+- **XP Rewards**: Time-based bonuses for early completion
+- **Deadline Tracking**: Visual countdown timers for each goal
+- **Completion Analytics**: Track success rates and patterns
+
+### Progress System
+- **XP and Levels**: Earn experience points for completing goals
+- **Daily Streaks**: Maintain momentum with streak tracking
+- **Achievements**: Unlock badges for milestones
+- **Analytics Dashboard**: Comprehensive progress visualization
+
+### Voice Features (Optional)
+- **Speech Recognition**: Voice input for natural conversations
+- **Text-to-Speech**: AI responses can be spoken aloud
+- **Voice Indicators**: Visual feedback during voice interactions
+
 ## Tech Stack
 
-- **Frontend**: React, TypeScript, Tailwind CSS
+- **Frontend**: React 18, TypeScript, Tailwind CSS
 - **Backend**: Supabase (PostgreSQL, Auth, Real-time)
-- **AI**: OpenAI GPT-4 for coaching responses
+- **AI**: OpenAI GPT-4 for coaching responses and goal verification
 - **Voice**: ElevenLabs for text-to-speech
 - **Deployment**: Netlify
+- **State Management**: React hooks with local storage fallback
+
+## Architecture
+
+### Data Flow
+1. **Conversations**: Stored in Supabase with local storage fallback
+2. **Goals**: Immediately saved to local storage, then synced to Supabase
+3. **User Profiles**: Cached locally with database synchronization
+4. **AI State**: Managed in-memory with conversation context
+
+### Offline Support
+- **Local Storage Fallback**: All data operations work offline
+- **Automatic Sync**: Data syncs when connection is restored
+- **Graceful Degradation**: Full functionality without internet
 
 ## Troubleshooting
 
@@ -92,6 +135,18 @@ If you see errors like "JWSError JWSInvalidSignature" or 401 Unauthorized:
 - Make sure your Supabase project is active
 - Check that RLS (Row Level Security) policies are properly configured
 - Verify your database migrations have been applied
+
+### Goal Tracking Issues
+- Goals are saved to local storage immediately for instant visibility
+- If goals don't appear, check browser console for errors
+- Local storage fallback ensures goals persist even without internet
+
+## Performance Optimizations
+
+- **Lazy Loading**: Components load on demand
+- **Local Storage Caching**: Reduces database calls
+- **Optimistic Updates**: UI updates immediately before database sync
+- **Efficient Re-renders**: Minimal state updates and memoization
 
 ## License
 
