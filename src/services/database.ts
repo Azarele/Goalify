@@ -219,6 +219,9 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
       lastActivity: profile.lastActivity.toISOString()
     }));
 
+    // Initialize user stats
+    await initializeUserStats(userId);
+
     return profile;
   } catch (error) {
     console.error('Error in createUserProfile:', error);
@@ -319,7 +322,6 @@ export const getGlobalLeaderboard = async (sortBy: 'xp' | 'goals' | 'streak' = '
   const client = checkSupabase();
   
   if (!client) {
-    // Return demo leaderboard data
     return generateDemoLeaderboard();
   }
 
@@ -843,7 +845,7 @@ export const deleteConversation = async (conversationId: string): Promise<void> 
   }
 };
 
-// Enhanced Goal Operations with Persistent Stats
+// ENHANCED: Database-First Goal Operations
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   const client = checkSupabase();
   
@@ -876,35 +878,34 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
   try {
     console.log('💾 Saving goal to database:', goal.id, 'for user:', userId);
     
-    const goalData = {
-      id: goal.id,
-      user_id: userId,
-      session_id: sessionId,
-      description: goal.description,
-      xp_value: goal.xpValue || 50,
-      difficulty: goal.difficulty || 'medium',
-      motivation: goal.motivation || 5,
-      completed: goal.completed || false,
-      completed_at: goal.completedAt?.toISOString() || null,
-      completion_reasoning: goal.completionReasoning || null,
-      deadline: goal.deadline?.toISOString() || null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await client
-      .from('goals')
-      .upsert(goalData);
+    // Use the database function for creating goals
+    const { data, error } = await client.rpc('create_user_goal', {
+      goal_description: goal.description,
+      goal_xp_value: goal.xpValue || 50,
+      goal_difficulty: goal.difficulty || 'medium',
+      goal_motivation: goal.motivation || 5,
+      goal_deadline: goal.deadline?.toISOString() || null,
+      session_id: sessionId || null
+    });
 
     if (error) {
       console.error('❌ Database save failed, but goal is preserved in local storage:', error);
-      // Don't throw error - goal is already saved locally
       return;
     }
 
-    console.log('✅ Goal saved successfully to database');
+    if (data && data.length > 0 && data[0].success) {
+      console.log('✅ Goal saved successfully to database with ID:', data[0].id);
+      
+      // Update local storage with the database ID
+      const updatedLocalGoals = localGoals.map((g: any) => 
+        g.id === goal.id ? { ...g, id: data[0].id } : g
+      );
+      localStorage.setItem(`goals_${userId}`, JSON.stringify(updatedLocalGoals));
+    } else {
+      console.error('❌ Goal creation failed:', data?.[0]?.message || 'Unknown error');
+    }
   } catch (error) {
     console.error('❌ Error saving goal to database, but preserved in local storage:', error);
-    // Don't throw error - goal is already saved locally
   }
 };
 
@@ -926,18 +927,19 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   }
 
   try {
-    const { data, error } = await client
-      .from('goals')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    // Use the database function to get user goals
+    const { data, error } = await client.rpc('get_user_goals', {
+      target_user_id: userId,
+      include_completed: true,
+      limit_count: 100
+    });
 
     if (error) {
       console.error('❌ Database fetch failed, using local storage:', error);
       return goalsFromLocal;
     }
 
-    const goalsFromDB = (data || []).map(goal => ({
+    const goalsFromDB = (data || []).map((goal: any) => ({
       id: goal.id,
       description: goal.description,
       xpValue: goal.xp_value || 50,
@@ -950,7 +952,7 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       createdAt: new Date(goal.created_at),
     }));
 
-    // Merge with local storage
+    // Merge with local storage - prioritize database data
     const mergedGoals = [...goalsFromDB];
     
     // Add any local goals not in database
@@ -965,7 +967,7 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       }
     });
 
-    // Update local storage cache
+    // Update local storage cache with merged data
     localStorage.setItem(`goals_${userId}`, JSON.stringify(mergedGoals.map(goal => ({
       ...goal,
       createdAt: goal.createdAt.toISOString(),
@@ -973,11 +975,69 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       deadline: goal.deadline?.toISOString() || null
     }))));
 
-    console.log('✅ Goals loaded and cached:', mergedGoals.length);
+    console.log('✅ Goals loaded from database and cached:', mergedGoals.length);
     return mergedGoals;
   } catch (error) {
     console.error('❌ Error fetching user goals from database, using local storage:', error);
     return goalsFromLocal;
+  }
+};
+
+// Enhanced goal completion with database integration
+export const completeGoal = async (
+  userId: string, 
+  goalId: string, 
+  reasoning: string, 
+  xpGained: number
+): Promise<{ newXP: number; newLevel: number } | null> => {
+  const client = checkSupabase();
+  
+  // Update local storage immediately
+  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+  const updatedLocalGoals = localGoals.map((g: any) => 
+    g.id === goalId ? {
+      ...g,
+      completed: true,
+      completedAt: new Date().toISOString(),
+      completionReasoning: reasoning,
+      xpValue: xpGained
+    } : g
+  );
+  localStorage.setItem(`goals_${userId}`, JSON.stringify(updatedLocalGoals));
+  console.log('✅ Goal completed in local storage immediately');
+
+  if (!client) {
+    console.log('⚠️ Supabase not available, goal completed in local storage only');
+    return { newXP: xpGained, newLevel: 1 };
+  }
+
+  try {
+    // Use the database function to complete the goal
+    const { data, error } = await client.rpc('complete_goal_with_xp', {
+      goal_id: goalId,
+      completion_reasoning: reasoning,
+      calculated_xp: xpGained
+    });
+
+    if (error) {
+      console.error('❌ Database goal completion failed:', error);
+      return null;
+    }
+
+    if (data && data.length > 0 && data[0].success) {
+      const result = data[0];
+      console.log('✅ Goal completed in database with XP reward:', xpGained, 'New total XP:', result.new_total_xp);
+      return { 
+        newXP: result.new_total_xp, 
+        newLevel: result.new_level 
+      };
+    } else {
+      console.error('❌ Goal completion failed:', data?.[0]?.message || 'Unknown error');
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Error completing goal in database:', error);
+    return null;
   }
 };
 

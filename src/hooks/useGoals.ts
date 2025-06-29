@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Goal } from '../types/coaching';
-import { getUserGoals, saveGoal, updateUserProfile, initializeUserStats } from '../services/database';
+import { getUserGoals, saveGoal, completeGoal, initializeUserStats } from '../services/database';
 import { useAuth } from './useAuth';
 
 export const useGoals = () => {
@@ -24,6 +24,7 @@ export const useGoals = () => {
 
     try {
       setLoading(true);
+      console.log('🔄 Loading goals from database for user:', user.id);
       const userGoals = await getUserGoals(user.id);
       setGoals(userGoals);
       console.log('✅ Goals loaded in useGoals hook:', userGoals.length, 'goals');
@@ -45,13 +46,18 @@ export const useGoals = () => {
       // Save to database/storage in background
       await saveGoal(user.id, sessionId, goal);
       console.log('✅ Goal persisted to storage:', goal.description);
+      
+      // Reload goals to ensure we have the latest data from database
+      setTimeout(() => {
+        loadGoals();
+      }, 500);
     } catch (error) {
       console.error('❌ Error adding goal:', error);
       // Goal is still in local state even if save failed
     }
   };
 
-  const completeGoal = async (goalId: string, reasoning: string, xpGained: number, userProfile: any) => {
+  const completeGoalAction = async (goalId: string, reasoning: string, xpGained: number, userProfile: any) => {
     if (!user) return;
 
     try {
@@ -71,22 +77,22 @@ export const useGoals = () => {
         g.id === goalId ? completedGoal : g
       ));
 
-      // Calculate new XP and level
-      const newXP = (userProfile?.totalXP || 0) + xpGained;
-      const newLevel = Math.floor(newXP / 1000) + 1;
-
-      // Save completed goal to database (triggers will update user_stats automatically)
-      await saveGoal(user.id, '', completedGoal);
+      // Complete goal in database
+      const result = await completeGoal(user.id, goalId, reasoning, xpGained);
       
-      // Update user profile with new XP and level
-      await updateUserProfile(user.id, {
-        ...userProfile,
-        totalXP: newXP,
-        level: newLevel
-      });
-
-      console.log('✅ Goal completed with XP reward:', xpGained, 'New total XP:', newXP);
-      return { newXP, newLevel };
+      if (result) {
+        console.log('✅ Goal completed with XP reward:', xpGained, 'New total XP:', result.newXP);
+        
+        // Reload goals to ensure consistency with database
+        setTimeout(() => {
+          loadGoals();
+        }, 500);
+        
+        return result;
+      } else {
+        console.error('❌ Goal completion failed in database');
+        return null;
+      }
     } catch (error) {
       console.error('❌ Error completing goal:', error);
       return null;
@@ -131,7 +137,7 @@ export const useGoals = () => {
     goals,
     loading,
     addGoal,
-    completeGoal,
+    completeGoal: completeGoalAction,
     loadGoals,
     getGoalStats
   };
