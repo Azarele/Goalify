@@ -17,16 +17,94 @@
 [context.deploy-preview.environment]
   NODE_ENV = "production"
 
-# Security headers
+# Comprehensive Security Headers
 [[headers]]
   for = "/*"
   [headers.values]
+    # Prevent clickjacking attacks
     X-Frame-Options = "DENY"
+    
+    # Prevent MIME type sniffing
     X-Content-Type-Options = "nosniff"
+    
+    # Enable XSS protection
     X-XSS-Protection = "1; mode=block"
+    
+    # Control referrer information
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.openai.com https://api.elevenlabs.io https://httpbin.org; frame-ancestors 'none';"
-    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    
+    # Comprehensive Content Security Policy
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+      font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net;
+      img-src 'self' data: https: blob:;
+      media-src 'self' data: blob:;
+      connect-src 'self' https://*.supabase.co https://api.openai.com https://api.elevenlabs.io https://httpbin.org wss://*.supabase.co;
+      worker-src 'self' blob:;
+      child-src 'self' blob:;
+      frame-ancestors 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    """
+    
+    # Force HTTPS
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    
+    # Prevent information disclosure
+    X-Powered-By = ""
+    Server = ""
+    
+    # Additional security headers
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+    
+    # Cache control for security
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Specific headers for HTML files
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Specific headers for API routes (if any)
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+# Security headers for static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Prevent access to sensitive files
+[[redirects]]
+  from = "/.env"
+  to = "/404"
+  status = 404
+
+[[redirects]]
+  from = "/.env.*"
+  to = "/404"
+  status = 404
+
+[[redirects]]
+  from = "/config/*"
+  to = "/404"
+  status = 404
+
+# Rate limiting (if available in your plan)
+[[headers]]
+  for = "/auth/*"
+  [headers.values]
+    X-RateLimit-Limit = "100"
+    X-RateLimit-Window = "3600"
 
 # Note: Environment variables should be set in Netlify dashboard
 # under Site settings > Environment variables
