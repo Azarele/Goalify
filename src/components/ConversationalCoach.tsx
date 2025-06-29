@@ -50,7 +50,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  // FIXED: Sidebars start closed but are controllable on mobile
+  // FIXED: Show sidebars on all screen sizes but make them controllable
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
