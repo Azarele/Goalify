@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus, Brain, Target, Lightbulb, Heart, Briefcase, Dumbbell } from 'lucide-react';
+import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus, Brain, Target, Lightbulb, Heart, Briefcase, Dumbbell, Trash2, XCircle } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
-import { getUserConversations } from '../services/database';
+import { getUserConversations, updateConversation } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { generateConversationLabel } from '../services/openai';
 
@@ -24,6 +24,13 @@ interface SessionSidebarProps {
   onNewConversation: () => void;
 }
 
+interface ContextMenuState {
+  isOpen: boolean;
+  x: number;
+  y: number;
+  conversationId: string | null;
+}
+
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   isOpen,
   onClose,
@@ -38,10 +45,28 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [labelingConversations, setLabelingConversations] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    conversationId: null
+  });
   
   useEffect(() => {
     loadConversations();
   }, [user]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setContextMenu({ isOpen: false, x: 0, y: 0, conversationId: null });
+    };
+
+    if (contextMenu.isOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [contextMenu.isOpen]);
 
   const loadConversations = async () => {
     if (!user) {
@@ -157,6 +182,56 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     }
   };
 
+  const handleRightClick = (e: React.MouseEvent, conversationId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      conversationId
+    });
+  };
+
+  const handleCloseChat = async (conversationId: string) => {
+    try {
+      await updateConversation(conversationId, { completed: true });
+      
+      // Update local state
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId 
+            ? { ...conv, completed: true }
+            : conv
+        )
+      );
+      
+      console.log('Chat closed:', conversationId);
+    } catch (error) {
+      console.error('Error closing chat:', error);
+    }
+    
+    setContextMenu({ isOpen: false, x: 0, y: 0, conversationId: null });
+  };
+
+  const handleDeleteChat = async (conversationId: string) => {
+    try {
+      // For now, we'll just mark as completed and hide from UI
+      // In a real app, you might want to add a soft delete flag
+      await updateConversation(conversationId, { completed: true });
+      
+      // Remove from local state
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      
+      console.log('Chat deleted:', conversationId);
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+    }
+    
+    setContextMenu({ isOpen: false, x: 0, y: 0, conversationId: null });
+  };
+
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'career': return <Briefcase className="w-3 h-3" />;
@@ -202,6 +277,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <div 
                 key={conversation.id}
                 onClick={() => !isLabeling && handleConversationClick(conversation)}
+                onContextMenu={(e) => !isLabeling && handleRightClick(e, conversation.id)}
                 className={`p-3 rounded-lg transition-all duration-300 border group hover:scale-[1.02] ${
                   isLabeling 
                     ? 'bg-slate-700/20 border-slate-600/20 cursor-wait opacity-75'
@@ -280,6 +356,34 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         />
       )}
 
+      {/* Context Menu */}
+      {contextMenu.isOpen && (
+        <div
+          className="fixed z-50 bg-slate-800 border border-purple-500/30 rounded-lg shadow-xl py-2 min-w-[160px]"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+            transform: 'translate(-50%, -10px)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => contextMenu.conversationId && handleCloseChat(contextMenu.conversationId)}
+            className="w-full px-4 py-2 text-left text-sm text-white hover:bg-purple-500/20 transition-colors flex items-center space-x-2"
+          >
+            <XCircle className="w-4 h-4 text-orange-400" />
+            <span>Close Chat</span>
+          </button>
+          <button
+            onClick={() => contextMenu.conversationId && handleDeleteChat(contextMenu.conversationId)}
+            className="w-full px-4 py-2 text-left text-sm text-red-300 hover:bg-red-500/20 transition-colors flex items-center space-x-2"
+          >
+            <Trash2 className="w-4 h-4 text-red-400" />
+            <span>Delete Chat</span>
+          </button>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className={`
         fixed lg:relative top-0 left-0 h-full w-80 bg-gradient-to-b from-slate-800 to-purple-900 border-r border-purple-500/20 z-50
@@ -346,6 +450,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   🤖 AI is analyzing {labelingConversations.size} conversation{labelingConversations.size > 1 ? 's' : ''}...
                 </span>
               )}
+            </div>
+            
+            <div className="text-xs text-purple-400 mt-2">
+              💡 Right-click conversations for options
             </div>
           </div>
 

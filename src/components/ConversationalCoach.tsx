@@ -30,7 +30,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   onProfileUpdate
 }) => {
   const { user } = useAuth();
-  const { addGoal, goals } = useGoals();
+  const { addGoal, goals, loadGoals } = useGoals();
   
   // Core conversation state
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
@@ -96,6 +96,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
+
+  // CRITICAL: Real-time goal count updates
+  useEffect(() => {
+    if (user && hasStartedSession) {
+      const currentGoalCount = goals.length;
+      setGoalCount(currentGoalCount);
+      console.log('🎯 Real-time goal count updated:', currentGoalCount);
+    }
+  }, [goals, user, hasStartedSession]);
 
   // CRITICAL: Idle detection with 5-minute timeout
   useEffect(() => {
@@ -345,7 +354,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     return goalMatch ? goalMatch[1].trim() : content.replace('[GOAL]', '').trim();
   };
 
-  // CRITICAL: Handle goal acceptance/decline with UI buttons
+  // CRITICAL: Handle goal acceptance/decline with UI buttons and real-time updates
   const handleGoalResponse = async (accepted: boolean) => {
     if (!pendingGoal || !currentConversationId || !user) return;
 
@@ -396,18 +405,20 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             deadline: deadline
           };
           
-          // Save goal using the goals hook
+          // Save goal using the goals hook - this will trigger real-time updates
           await addGoal(goal, currentConversationId);
           console.log(`✅ Goal accepted and created:`, goal.description);
           
-          // Increment goal count and update state
-          const newGoalCount = goalCount + 1;
+          // CRITICAL: Real-time goal count update
+          const newGoalCount = goals.length + 1; // Immediate update before hook refresh
           setGoalCount(newGoalCount);
           setUserAcceptedGoal(true);
           setUserDeclinedGoal(false);
           
-          // CRITICAL: Force refresh of goals in sidebar by updating context
-          setContext(prev => ({ ...prev, lastGoalCreated: Date.now() }));
+          // Force refresh of goals to ensure UI is in sync
+          setTimeout(() => {
+            loadGoals();
+          }, 100);
         }
       } else {
         setUserDeclinedGoal(true);
