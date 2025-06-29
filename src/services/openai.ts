@@ -54,7 +54,7 @@ Rules:
 - 1 question only
 - Under 25 words
 - No advice/opinions
-- Reference user's ${context?.activeGoals || 0} active goals if relevant`;
+- Reference user's active goals if relevant`;
 
 // ULTRA-MINIMAL: Goal proposition - heavily reduced
 const GOAL_PROMPT = `Propose 1 specific goal. Format: [GOAL] Can I suggest: [action]
