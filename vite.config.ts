@@ -39,7 +39,9 @@ export default defineConfig({
         unknownGlobalSideEffects: false
       }
     },
-    chunkSizeWarningLimit: 1000
+    chunkSizeWarningLimit: 1000,
+    target: 'es2015',
+    cssCodeSplit: true
   },
   server: {
     port: 5173,
@@ -49,4 +51,7 @@ export default defineConfig({
     port: 4173,
     host: true,
   },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
+  }
 });

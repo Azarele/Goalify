@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain, Menu, X } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
-import { LazyProgressDashboard, LazyUserAnalysis, LazySettings, LazyWrapper } from './components/LazyComponents';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
@@ -10,6 +9,28 @@ import { Footer } from './components/Footer';
 import { useAuth } from './hooks/useAuth';
 import { useOptimizedData } from './hooks/useOptimizedData';
 import { updateDailyStreak } from './services/database';
+
+// Lazy load heavy components
+const LazyProgressDashboard = React.lazy(() => 
+  import('./components/ProgressDashboard').then(module => ({ default: module.ProgressDashboard }))
+);
+
+const LazyUserAnalysis = React.lazy(() => 
+  import('./components/UserAnalysis').then(module => ({ default: module.UserAnalysis }))
+);
+
+const LazySettings = React.lazy(() => 
+  import('./components/Settings').then(module => ({ default: module.Settings }))
+);
+
+const LoadingFallback: React.FC<{ text?: string }> = ({ text = 'Loading...' }) => (
+  <div className="flex-1 flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p className="text-purple-300">{text}</p>
+    </div>
+  </div>
+);
 
 type AppView = 'coaching' | 'progress' | 'analysis' | 'settings';
 
@@ -262,9 +283,9 @@ function MainApp() {
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading dashboard...</p></div>}>
+              <React.Suspense fallback={<LoadingFallback text="Loading dashboard..." />}>
                 <LazyProgressDashboard userProfile={userProfile} />
-              </LazyWrapper>
+              </React.Suspense>
             </div>
           </div>
         );
@@ -272,9 +293,9 @@ function MainApp() {
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading analysis...</p></div>}>
+              <React.Suspense fallback={<LoadingFallback text="Loading analysis..." />}>
                 <LazyUserAnalysis userProfile={userProfile} />
-              </LazyWrapper>
+              </React.Suspense>
             </div>
           </div>
         );
@@ -282,9 +303,9 @@ function MainApp() {
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading settings...</p></div>}>
+              <React.Suspense fallback={<LoadingFallback text="Loading settings..." />}>
                 <LazySettings userProfile={userProfile} onProfileUpdate={refreshData} />
-              </LazyWrapper>
+              </React.Suspense>
             </div>
           </div>
         );
