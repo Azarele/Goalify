@@ -46,7 +46,7 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
     <div className="text-sm leading-relaxed">
       {displayedText}
       {currentIndex < text.length && (
-        <span className={`${enableVoiceSync ? 'animate-pulse' : 'animate-pulse'} text-purple-400`}>|</span>
+        <span className={`${enableVoiceSync ? 'animate-pulse text-purple-400' : 'animate-pulse text-purple-400'}`}>|</span>
       )}
     </div>
   );

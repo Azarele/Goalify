@@ -21,7 +21,7 @@ export const Footer: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-md opacity-0 group-hover:opacity-20 animate-ping"></div>
               </div>
               <span className="font-bold text-white group-hover:bg-gradient-to-r group-hover:from-yellow-400 group-hover:to-orange-500 group-hover:bg-clip-text group-hover:text-transparent transition-all duration-300">
-                Bolt
+                Bolt.new
               </span>
             </div>
           </a>

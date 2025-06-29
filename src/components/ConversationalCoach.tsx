@@ -50,15 +50,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  // FIXED: Show sidebars on all screen sizes but make them controllable
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   
-  // Enhanced voice synchronization state
+  // ENHANCED: Voice synchronization state
   const [voiceProgress, setVoiceProgress] = useState(0);
   const [typingProgress, setTypingProgress] = useState(0);
   const [isVoiceSynced, setIsVoiceSynced] = useState(false);
+  const [voiceStartTime, setVoiceStartTime] = useState<number | null>(null);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -71,6 +71,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const voiceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const {
     transcript,
@@ -291,13 +292,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  // ENHANCED: Voice playback with character, emotion, and synchronization
+  // ENHANCED: Voice playback with character, emotion, and perfect synchronization
   const playCoachResponseWithSync = async (text: string) => {
     if (!userProfile?.preferences.voiceEnabled || !isElevenLabsConfigured) return;
     
     try {
       setIsPlayingAudio(true);
       setIsVoiceSynced(true);
+      setVoiceProgress(0);
+      setTypingProgress(0);
+      setVoiceStartTime(Date.now());
       
       // Determine emotion from content
       const emotion = determineEmotion(text);
@@ -306,9 +310,23 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         voiceId: userProfile.preferences.voiceId
       }, emotion);
       
-      // Play audio with progress tracking for synchronization
+      // ENHANCED: Play audio with perfect progress tracking for synchronization
       await playAudioSynchronized(audioBuffer, text.length, (progress) => {
         setVoiceProgress(progress);
+        
+        // Clear any existing timeout
+        if (voiceTimeoutRef.current) {
+          clearTimeout(voiceTimeoutRef.current);
+        }
+        
+        // Set timeout to clear voice sync state if audio stops unexpectedly
+        voiceTimeoutRef.current = setTimeout(() => {
+          if (progress >= 0.95) { // Near completion
+            setIsVoiceSynced(false);
+            setVoiceProgress(0);
+            setTypingProgress(0);
+          }
+        }, 100);
       });
       
     } catch (error) {
@@ -318,6 +336,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setIsVoiceSynced(false);
       setVoiceProgress(0);
       setTypingProgress(0);
+      setVoiceStartTime(null);
+      
+      if (voiceTimeoutRef.current) {
+        clearTimeout(voiceTimeoutRef.current);
+        voiceTimeoutRef.current = null;
+      }
     }
   };
 
@@ -674,7 +698,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
-      {/* FIXED: Show sidebars on all screen sizes but make them controllable */}
+      {/* ENHANCED: Show sidebars on all screen sizes but make them controllable */}
       <SessionSidebar 
         isOpen={leftSidebarOpen}
         onClose={() => setLeftSidebarOpen(false)}
@@ -696,7 +720,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           
           <div className="relative flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              {/* FIXED: Show sidebar toggles on all screen sizes */}
+              {/* ENHANCED: Show sidebar toggles on all screen sizes */}
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
@@ -757,7 +781,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </button>
               )}
               
-              {/* FIXED: Show goal sidebar toggle on all screen sizes */}
+              {/* ENHANCED: Show goal sidebar toggle on all screen sizes */}
               <div>
                 <button
                   onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
@@ -768,8 +792,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </button>
               </div>
               
+              {/* ENHANCED: Mobile-friendly voice indicator */}
               {isPlayingAudio && (
-                <VoiceIndicator />
+                <div className="hidden sm:block">
+                  <VoiceIndicator />
+                </div>
               )}
             </div>
           </div>
@@ -933,26 +960,29 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             </div>
           )}
 
-          {isConversationCompleted && goalCount >= 2 && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
-              </div>
-            </div>
-          )}
-
-          {/* Voice synchronization indicator */}
+          {/* ENHANCED: Mobile-friendly voice synchronization indicator */}
           {isVoiceSynced && (
             <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-purple-500/10 text-purple-300 rounded-full border border-purple-500/20 backdrop-blur-sm">
-                <Volume2 className="w-4 h-4 animate-pulse" />
-                <span className="text-sm font-medium">Voice synchronized with typing</span>
-                <div className="w-16 h-1 bg-slate-600 rounded-full overflow-hidden">
+              <div className="inline-flex items-center space-x-3 px-4 py-2 bg-purple-500/10 text-purple-300 rounded-full border border-purple-500/20 backdrop-blur-sm max-w-xs mx-auto">
+                <div className="flex items-center space-x-2">
+                  <Volume2 className="w-4 h-4 animate-pulse" />
+                  <span className="text-sm font-medium hidden sm:inline">Voice synchronized</span>
+                  <span className="text-sm font-medium sm:hidden">🎤 Speaking</span>
+                </div>
+                <div className="w-16 h-1.5 bg-slate-600 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-100"
                     style={{ width: `${Math.max(voiceProgress, typingProgress) * 100}%` }}
                   />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {isConversationCompleted && goalCount >= 2 && (
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
+                <span className="text-sm font-medium">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
               </div>
             </div>
           )}

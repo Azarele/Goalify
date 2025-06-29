@@ -17,7 +17,8 @@ export const VoiceIndicator: React.FC = () => {
         <div className="w-1 h-4 bg-gradient-to-t from-purple-500 to-pink-500 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></div>
         <div className="w-1 h-3 bg-gradient-to-t from-purple-500 to-pink-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
       </div>
-      <span className="text-xs font-medium">Speaking...</span>
+      <span className="text-xs font-medium hidden sm:inline">Speaking...</span>
+      <span className="text-xs font-medium sm:hidden">🎤</span>
     </div>
   );
 };

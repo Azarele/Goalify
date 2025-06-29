@@ -64,7 +64,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
   }
 
   try {
-    console.log('🔄 Fetching user profile from database for:', userId);
+    console.log('🔄 Fetching user profile from database for cross-device sync:', userId);
     
     const { data, error } = await client
       .from('user_profiles')
@@ -86,7 +86,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       return null;
     }
 
-    console.log('✅ User profile loaded from database:', data.id);
+    console.log('✅ User profile loaded from database with cross-device sync:', data.id);
 
     const profile = {
       id: data.id,
@@ -161,7 +161,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
   }
 
   try {
-    console.log('🔄 Creating user profile in database for:', userId, 'with name:', name);
+    console.log('🔄 Creating user profile in database for cross-device sync:', userId, 'with name:', name);
     
     const profileData = {
       user_id: userId,
@@ -195,7 +195,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
       throw error;
     }
 
-    console.log('✅ User profile created in database:', data.id);
+    console.log('✅ User profile created in database with cross-device sync:', data.id);
 
     const profile = {
       id: data.id,
