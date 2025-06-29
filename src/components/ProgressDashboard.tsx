@@ -293,6 +293,11 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
                     </div>
                   </div>
                 ))}
+                {goalStats.pending > 5 && (
+                  <div className="text-center text-sm text-purple-400">
+                    And {goalStats.pending - 5} more pending goals...
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-purple-300 text-center py-4">No pending goals</p>
@@ -326,6 +331,11 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
                     </div>
                   </div>
                 ))}
+                {goalStats.completed > 5 && (
+                  <div className="text-center text-sm text-purple-400">
+                    And {goalStats.completed - 5} more completed goals...
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-purple-300 text-center py-4">No completed goals yet</p>
@@ -353,6 +363,45 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
           </div>
         </div>
       )}
+
+      {/* Goal Statistics Summary */}
+      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
+        <div className="p-6 border-b border-purple-500/20">
+          <h3 className="text-xl font-semibold text-white">Goal Statistics</h3>
+        </div>
+        
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-400 mb-2">{goalStats.total}</div>
+              <div className="text-sm text-purple-300">Total Goals Created</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-yellow-400 mb-2">{goalStats.totalXPEarned}</div>
+              <div className="text-sm text-purple-300">Total XP Earned</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-400 mb-2">{averageMotivation.toFixed(1)}</div>
+              <div className="text-sm text-purple-300">Avg Motivation</div>
+            </div>
+          </div>
+          
+          {goalStats.total > 0 && (
+            <div className="mt-6">
+              <div className="text-sm text-purple-300 mb-2">Overall Progress</div>
+              <div className="w-full bg-slate-700 rounded-full h-4">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${goalStats.completionRate}%` }}
+                />
+              </div>
+              <div className="text-center text-sm text-purple-300 mt-2">
+                {goalStats.completed} of {goalStats.total} goals completed ({goalStats.completionRate}%)
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

@@ -2,25 +2,11 @@ import React, { useState } from 'react';
 import { X, Target, CheckCircle, Calendar, Star, Clock, Trophy, Award, Loader, AlertCircle } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
 import { verifyGoalCompletion } from '../services/openai';
-
-interface Goal {
-  id: string;
-  description: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  xpValue: number;
-  deadline: Date;
-  completed: boolean;
-  completedAt?: Date;
-  completionReasoning?: string;
-  createdAt: Date;
-  motivation: number;
-}
+import { useGoals } from '../hooks/useGoals';
 
 interface GoalSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  goals: Goal[];
-  onGoalComplete: (goalId: string, reasoning: string) => void;
   userProfile: UserProfile | null;
 }
 
@@ -36,10 +22,9 @@ interface GoalCompletionState {
 export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   isOpen,
   onClose,
-  goals,
-  onGoalComplete,
   userProfile
 }) => {
+  const { goals, getGoalStats, completeGoal } = useGoals();
   const [expandedGoal, setExpandedGoal] = useState<string | null>(null);
   const [completionStates, setCompletionStates] = useState<{ [goalId: string]: GoalCompletionState }>({});
 
@@ -102,7 +87,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
   };
 
   // Handle goal click to expand completion form
-  const handleGoalClick = (goal: Goal) => {
+  const handleGoalClick = (goal: any) => {
     if (!goal.completed) {
       if (expandedGoal === goal.id) {
         setExpandedGoal(null);
@@ -154,22 +139,39 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
       // Send to AI for verification
       const result = await verifyGoalCompletion(goal.description, completionState.reasoning);
       
+      // Calculate time-based XP bonus
+      const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline, goal.createdAt) : null;
+      let xpMultiplier = 1.0;
+      
+      if (timeInfo && !timeInfo.isOverdue) {
+        // Bonus for completing early
+        if (timeInfo.percentage > 75) xpMultiplier = 1.5; // 50% bonus for completing in first 25% of time
+        else if (timeInfo.percentage > 50) xpMultiplier = 1.3; // 30% bonus for completing in first 50% of time
+        else if (timeInfo.percentage > 25) xpMultiplier = 1.1; // 10% bonus for completing in first 75% of time
+      } else if (timeInfo?.isOverdue) {
+        // Penalty for being overdue
+        xpMultiplier = 0.7; // 30% penalty for overdue completion
+      }
+
+      const finalXP = Math.round(goal.xpValue * xpMultiplier);
+      
       // Update state with verification result
       setCompletionStates(prev => ({
         ...prev,
         [goalId]: {
           ...prev[goalId],
           isSubmitting: false,
-          feedback: result.feedback,
+          feedback: result.feedback + (xpMultiplier !== 1.0 ? 
+            ` Time bonus/penalty applied: ${Math.round((xpMultiplier - 1) * 100)}%` : ''),
           verified: result.verified,
           showFeedback: true
         }
       }));
 
-      // If verified, complete the goal
+      // If verified, complete the goal and award XP
       if (result.verified) {
-        setTimeout(() => {
-          onGoalComplete(goalId, completionState.reasoning);
+        setTimeout(async () => {
+          await completeGoal(goalId, completionState.reasoning, finalXP, userProfile);
           setExpandedGoal(null);
           // Clear completion state
           setCompletionStates(prev => {
@@ -217,9 +219,9 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
     }));
   };
 
+  const goalStats = getGoalStats();
   const pendingGoals = goals.filter(g => !g.completed);
   const completedGoals = goals.filter(g => g.completed);
-  const completionRate = goals.length > 0 ? Math.round((completedGoals.length / goals.length) * 100) : 0;
 
   return (
     <>
@@ -279,28 +281,39 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Session Info */}
+            {/* Global Goal Stats */}
             <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20">
               <div className="text-center">
-                <div className="text-sm text-blue-300 mb-1">Current Session Goals</div>
-                <div className="text-lg font-bold text-white">{goals.length}</div>
+                <div className="text-sm text-blue-300 mb-1">All Your Goals</div>
+                <div className="text-lg font-bold text-white">{goalStats.total}</div>
+                <div className="text-xs text-blue-200">{goalStats.completed} completed • {goalStats.pending} active</div>
               </div>
             </div>
 
             {/* Stats */}
-            {goals.length > 0 && (
+            {goalStats.total > 0 && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg p-3 border border-yellow-500/20">
                   <div className="text-center">
-                    <div className="text-xl font-bold text-white">{pendingGoals.length}</div>
-                    <div className="text-xs text-yellow-300">Pending</div>
+                    <div className="text-xl font-bold text-white">{goalStats.pending}</div>
+                    <div className="text-xs text-yellow-300">Active</div>
                   </div>
                 </div>
                 <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-3 border border-green-500/20">
                   <div className="text-center">
-                    <div className="text-xl font-bold text-white">{completionRate}%</div>
-                    <div className="text-xs text-green-300">Complete</div>
+                    <div className="text-xl font-bold text-white">{goalStats.completionRate}%</div>
+                    <div className="text-xs text-green-300">Success Rate</div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* XP Summary */}
+            {goalStats.totalXPEarned > 0 && (
+              <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg p-3 border border-purple-500/20">
+                <div className="text-center">
+                  <div className="text-sm text-purple-300 mb-1">Total XP Earned from Goals</div>
+                  <div className="text-xl font-bold text-white">{goalStats.totalXPEarned}</div>
                 </div>
               </div>
             )}
@@ -310,7 +323,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
               <div className="space-y-3">
                 <h4 className="font-medium text-white flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-yellow-400" />
-                  <span>In Progress</span>
+                  <span>Active Goals</span>
                   <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full">
                     {pendingGoals.length}
                   </span>
@@ -319,7 +332,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 <div className="space-y-2">
                   {pendingGoals.map((goal) => {
                     const completionState = completionStates[goal.id];
-                    const timeInfo = getTimeRemaining(goal.deadline, goal.createdAt);
+                    const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline, goal.createdAt) : null;
                     
                     return (
                       <div key={goal.id} className="space-y-2">
@@ -345,31 +358,33 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                               </div>
 
                               {/* Countdown Timer */}
-                              <div className="mt-2">
-                                <div className="flex items-center justify-between text-xs mb-1">
-                                  <span className="text-purple-300 flex items-center space-x-1">
-                                    <Clock className="w-3 h-3" />
-                                    <span>Time left: {timeInfo.timeLeft}</span>
-                                  </span>
-                                  <span className={`font-medium ${timeInfo.isOverdue ? 'text-red-400' : 'text-green-400'}`}>
-                                    {timeInfo.isOverdue ? 'OVERDUE' : `${Math.round(timeInfo.percentage)}%`}
-                                  </span>
+                              {timeInfo && (
+                                <div className="mt-2">
+                                  <div className="flex items-center justify-between text-xs mb-1">
+                                    <span className="text-purple-300 flex items-center space-x-1">
+                                      <Clock className="w-3 h-3" />
+                                      <span>Time left: {timeInfo.timeLeft}</span>
+                                    </span>
+                                    <span className={`font-medium ${timeInfo.isOverdue ? 'text-red-400' : 'text-green-400'}`}>
+                                      {timeInfo.isOverdue ? 'OVERDUE' : `${Math.round(timeInfo.percentage)}%`}
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-600 rounded-full h-1.5">
+                                    <div 
+                                      className={`h-1.5 rounded-full transition-all duration-500 ${
+                                        timeInfo.isOverdue 
+                                          ? 'bg-gradient-to-r from-red-500 to-orange-500' 
+                                          : timeInfo.percentage > 50 
+                                            ? 'bg-gradient-to-r from-green-500 to-blue-500'
+                                            : timeInfo.percentage > 25
+                                              ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                                              : 'bg-gradient-to-r from-red-500 to-pink-500'
+                                      }`}
+                                      style={{ width: `${Math.max(5, timeInfo.percentage)}%` }}
+                                    />
+                                  </div>
                                 </div>
-                                <div className="w-full bg-slate-600 rounded-full h-1.5">
-                                  <div 
-                                    className={`h-1.5 rounded-full transition-all duration-500 ${
-                                      timeInfo.isOverdue 
-                                        ? 'bg-gradient-to-r from-red-500 to-orange-500' 
-                                        : timeInfo.percentage > 50 
-                                          ? 'bg-gradient-to-r from-green-500 to-blue-500'
-                                          : timeInfo.percentage > 25
-                                            ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
-                                            : 'bg-gradient-to-r from-red-500 to-pink-500'
-                                    }`}
-                                    style={{ width: `${Math.max(5, timeInfo.percentage)}%` }}
-                                  />
-                                </div>
-                              </div>
+                              )}
                               
                               <div className="flex items-center justify-between mt-2">
                                 <span className="text-xs text-purple-400">
@@ -431,7 +446,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                               </>
                             ) : (
                               <>
-                                {/* Display AI verification result */}
+                                {/* Display AI verification result with XP calculation */}
                                 <div className={`rounded-lg p-4 border mb-4 ${
                                   completionState.verified 
                                     ? 'bg-green-500/10 border-green-500/20' 
@@ -459,7 +474,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                                   <div className="text-center">
                                     <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full border border-purple-500/30">
                                       <Trophy className="w-4 h-4 text-yellow-400" />
-                                      <span className="text-white font-medium">XP will be awarded!</span>
+                                      <span className="text-white font-medium">XP will be awarded based on completion quality and timing!</span>
                                     </div>
                                   </div>
                                 ) : (
@@ -489,7 +504,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
                   <p className="text-blue-300 text-xs">
-                    💡 Click on a challenge to mark it complete and earn XP!
+                    💡 Click on a challenge to mark it complete and earn XP! Complete faster for bonus XP!
                   </p>
                 </div>
               </div>
@@ -506,7 +521,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                   </span>
                 </h4>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-64 overflow-y-auto">
                   {completedGoals.map((goal) => (
                     <div 
                       key={goal.id}
@@ -536,7 +551,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
             )}
 
             {/* Empty State */}
-            {goals.length === 0 && (
+            {goalStats.total === 0 && (
               <div className="text-center py-8">
                 <Target className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
                 <h3 className="text-lg font-medium text-white mb-2">No challenges yet</h3>

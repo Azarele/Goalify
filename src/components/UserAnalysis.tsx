@@ -454,6 +454,49 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
           </div>
         </div>
       </div>
+
+      {/* Goal Summary Statistics */}
+      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
+        <div className="p-6 border-b border-purple-500/20">
+          <h3 className="text-xl font-semibold text-white">Goal Journey Summary</h3>
+        </div>
+        
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-400 mb-2">{analysisData.totalGoals}</div>
+              <div className="text-sm text-purple-300">Total Goals</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-400 mb-2">{analysisData.completedGoals}</div>
+              <div className="text-sm text-purple-300">Completed</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-yellow-400 mb-2">{analysisData.totalGoals - analysisData.completedGoals}</div>
+              <div className="text-sm text-purple-300">In Progress</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-blue-400 mb-2">{analysisData.totalXP}</div>
+              <div className="text-sm text-purple-300">XP Earned</div>
+            </div>
+          </div>
+          
+          {analysisData.totalGoals > 0 && (
+            <div className="mt-6">
+              <div className="text-sm text-purple-300 mb-2 text-center">Your Goal Completion Journey</div>
+              <div className="w-full bg-slate-700 rounded-full h-4">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${completionRate}%` }}
+                />
+              </div>
+              <div className="text-center text-sm text-purple-300 mt-2">
+                You've completed {completionRate}% of your goals - keep up the great work!
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
