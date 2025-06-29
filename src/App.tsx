@@ -8,6 +8,7 @@ import { Settings } from './components/Settings';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
+import { Footer } from './components/Footer';
 import { useAuth } from './hooks/useAuth';
 import { useGoals } from './hooks/useGoals';
 import { getUserProfile, createUserProfile, updateDailyStreak } from './services/database';
@@ -287,7 +288,7 @@ function MainApp() {
     switch (currentView) {
       case 'coaching':
         return (
-          <div className="h-[calc(100vh-4rem)] relative">
+          <div className="h-[calc(100vh-8rem)] relative">
             <ConversationalCoach userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
           </div>
         );
@@ -315,9 +316,12 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex flex-col">
       {renderNavigation()}
-      {renderContent()}
+      <div className="flex-1">
+        {renderContent()}
+      </div>
+      <Footer />
 
       {showOnboarding && (
         <OnboardingModal onComplete={handleOnboardingComplete} />
