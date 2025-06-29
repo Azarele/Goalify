@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://candid-eclair-5e32c5.netlify.app/sitemap.xml
