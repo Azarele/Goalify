@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus } from 'lucide-react';
+import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus, Brain, Target, Lightbulb, Heart, Briefcase, Dumbbell } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
 import { getUserConversations } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
+import { generateConversationLabel } from '../services/openai';
 
 interface Conversation {
   id: string;
@@ -10,6 +11,8 @@ interface Conversation {
   created_at: Date;
   updated_at: Date;
   completed: boolean;
+  aiLabel?: string;
+  category?: string;
 }
 
 interface SessionSidebarProps {
@@ -34,6 +37,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const [filterPeriod, setFilterPeriod] = useState('all');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [labelingConversations, setLabelingConversations] = useState<Set<string>>(new Set());
   
   useEffect(() => {
     loadConversations();
@@ -48,8 +52,42 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
     try {
       const conversationsData = await getUserConversations(user.id);
-      setConversations(conversationsData);
-      console.log('Loaded conversations:', conversationsData.length);
+      
+      // Convert to our format and add AI labels
+      const conversationsWithLabels = await Promise.all(
+        conversationsData.map(async (conv) => {
+          const conversation: Conversation = {
+            ...conv,
+            aiLabel: conv.title, // Start with existing title
+            category: 'general'
+          };
+
+          // Generate AI label if conversation has enough content and doesn't already have a good label
+          if (conv.title.length < 50 && !conv.title.includes('...')) {
+            try {
+              setLabelingConversations(prev => new Set(prev).add(conv.id));
+              const aiLabel = await generateConversationLabel(conv.title);
+              if (aiLabel && aiLabel !== conv.title) {
+                conversation.aiLabel = aiLabel.label;
+                conversation.category = aiLabel.category;
+              }
+            } catch (error) {
+              console.error('Error generating AI label for conversation:', conv.id, error);
+            } finally {
+              setLabelingConversations(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(conv.id);
+                return newSet;
+              });
+            }
+          }
+
+          return conversation;
+        })
+      );
+
+      setConversations(conversationsWithLabels);
+      console.log('Loaded conversations with AI labels:', conversationsWithLabels.length);
     } catch (error) {
       console.error('Error loading conversations:', error);
     } finally {
@@ -68,6 +106,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     // Apply search filter
     if (searchTerm) {
       filteredConversations = filteredConversations.filter(conversation => 
+        conversation.aiLabel?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         conversation.title.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
@@ -98,9 +137,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const conversationGroups = getConversationsByPeriod();
 
   const handleConversationClick = async (conversation: Conversation) => {
-    console.log('Conversation clicked:', conversation.id, conversation.title);
+    console.log('Conversation clicked:', conversation.id, conversation.aiLabel || conversation.title);
     
-    // Step 2: Handle the User Click Event - pass conversation ID to parent
     await onConversationSelect(conversation.id);
     
     // Close sidebar on mobile after selection
@@ -119,6 +157,30 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     }
   };
 
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'career': return <Briefcase className="w-3 h-3" />;
+      case 'health': return <Dumbbell className="w-3 h-3" />;
+      case 'relationships': return <Heart className="w-3 h-3" />;
+      case 'productivity': return <Target className="w-3 h-3" />;
+      case 'personal': return <Brain className="w-3 h-3" />;
+      case 'goals': return <Target className="w-3 h-3" />;
+      default: return <Lightbulb className="w-3 h-3" />;
+    }
+  };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case 'career': return 'text-blue-400 bg-blue-500/20';
+      case 'health': return 'text-green-400 bg-green-500/20';
+      case 'relationships': return 'text-pink-400 bg-pink-500/20';
+      case 'productivity': return 'text-orange-400 bg-orange-500/20';
+      case 'personal': return 'text-purple-400 bg-purple-500/20';
+      case 'goals': return 'text-yellow-400 bg-yellow-500/20';
+      default: return 'text-gray-400 bg-gray-500/20';
+    }
+  };
+
   const ConversationGroup = ({ title, conversations, icon }: { title: string; conversations: Conversation[]; icon: React.ReactNode }) => {
     if (conversations.length === 0) return null;
 
@@ -133,46 +195,76 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         </div>
         
         <div className="space-y-2">
-          {conversations.map((conversation) => (
-            <div 
-              key={conversation.id}
-              onClick={() => handleConversationClick(conversation)}
-              className={`p-3 rounded-lg transition-all duration-300 cursor-pointer border group hover:scale-[1.02] ${
-                currentConversationId === conversation.id
-                  ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 border-purple-400/50 shadow-lg ring-2 ring-purple-400/30'
-                  : 'bg-slate-700/30 hover:bg-slate-600/40 border-slate-600/30 hover:border-purple-500/30'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-white group-hover:text-purple-200 transition-colors line-clamp-1 flex-1 mr-2">
-                  {conversation.title}
-                </span>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <span className="text-xs text-purple-300">
-                    {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {conversations.map((conversation) => {
+            const isLabeling = labelingConversations.has(conversation.id);
+            
+            return (
+              <div 
+                key={conversation.id}
+                onClick={() => !isLabeling && handleConversationClick(conversation)}
+                className={`p-3 rounded-lg transition-all duration-300 border group hover:scale-[1.02] ${
+                  isLabeling 
+                    ? 'bg-slate-700/20 border-slate-600/20 cursor-wait opacity-75'
+                    : currentConversationId === conversation.id
+                      ? 'bg-gradient-to-r from-purple-500/30 to-pink-500/30 border-purple-400/50 shadow-lg ring-2 ring-purple-400/30 cursor-pointer'
+                      : 'bg-slate-700/30 hover:bg-slate-600/40 border-slate-600/30 hover:border-purple-500/30 cursor-pointer'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2 flex-1 mr-2">
+                    {/* Category Icon */}
+                    <div className={`p-1 rounded ${getCategoryColor(conversation.category || 'general')}`}>
+                      {getCategoryIcon(conversation.category || 'general')}
+                    </div>
+                    
+                    {/* Conversation Title/Label */}
+                    <span className={`text-sm font-medium line-clamp-2 flex-1 transition-colors ${
+                      isLabeling 
+                        ? 'text-purple-400'
+                        : 'text-white group-hover:text-purple-200'
+                    }`}>
+                      {isLabeling ? (
+                        <span className="flex items-center space-x-2">
+                          <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                          <span>Analyzing conversation...</span>
+                        </span>
+                      ) : (
+                        conversation.aiLabel || conversation.title
+                      )}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    <span className="text-xs text-purple-300">
+                      {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {!isLabeling && (
+                      <ArrowRight className={`w-3 h-3 text-purple-400 transition-all duration-200 ${
+                        currentConversationId === conversation.id ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover:opacity-100'
+                      }`} />
+                    )}
+                  </div>
+                </div>
+                
+                <div className="text-xs text-purple-400 mb-2">
+                  {conversation.updated_at.toLocaleDateString()}
+                </div>
+                
+                <div className="flex items-center justify-between text-xs">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    conversation.completed 
+                      ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
+                      : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                  }`}>
+                    {conversation.completed ? 'Complete' : 'In Progress'}
                   </span>
-                  <ArrowRight className={`w-3 h-3 text-purple-400 transition-all duration-200 ${
-                    currentConversationId === conversation.id ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover:opacity-100'
-                  }`} />
+                  {currentConversationId === conversation.id && (
+                    <span className="text-xs text-purple-300 font-medium">Active</span>
+                  )}
                 </div>
               </div>
-              <div className="text-xs text-purple-400 mb-2">
-                {conversation.updated_at.toLocaleDateString()}
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  conversation.completed 
-                    ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
-                    : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                }`}>
-                  {conversation.completed ? 'Complete' : 'In Progress'}
-                </span>
-                {currentConversationId === conversation.id && (
-                  <span className="text-xs text-purple-300 font-medium">Active</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -249,6 +341,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
             <div className="text-sm text-purple-300">
               {conversations.length} total conversations
+              {labelingConversations.size > 0 && (
+                <span className="block text-xs text-blue-300 mt-1">
+                  🤖 AI is analyzing {labelingConversations.size} conversation{labelingConversations.size > 1 ? 's' : ''}...
+                </span>
+              )}
             </div>
           </div>
 

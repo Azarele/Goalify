@@ -157,6 +157,35 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
+// CRITICAL: Conversation Labeling Prompt
+const CONVERSATION_LABELING_PROMPT = `You are an AI conversation analyzer. Your job is to create meaningful, descriptive labels for coaching conversations based on their content.
+
+LABELING RULES:
+1. Create a concise, descriptive label (max 60 characters)
+2. Focus on the main topic or challenge discussed
+3. Use natural, human-friendly language
+4. Categorize the conversation into one of these categories:
+   - career: Work, job, professional development
+   - health: Physical health, fitness, wellness
+   - relationships: Personal relationships, family, social
+   - productivity: Time management, organization, efficiency
+   - personal: Self-improvement, mindset, personal growth
+   - goals: Goal setting, achievement, planning
+   - general: Other topics
+
+RESPONSE FORMAT (JSON):
+{
+  "label": "Descriptive conversation title",
+  "category": "category_name"
+}
+
+EXAMPLES:
+- Input: "I want to improve my work-life balance" → {"label": "Finding Work-Life Balance", "category": "career"}
+- Input: "I need to get better at managing my time" → {"label": "Time Management Strategies", "category": "productivity"}
+- Input: "I'm struggling with motivation to exercise" → {"label": "Building Exercise Motivation", "category": "health"}
+
+Make labels engaging and specific to help users quickly identify their past conversations.`;
+
 // CRITICAL: Enhanced demo responses with goal memory integration
 const getDemoResponse = (messages: any[], context?: any): { response: string; aiState: AIState; shouldShowEndChat: boolean } => {
   const userMessages = messages.filter(m => m.role === 'user');
@@ -594,6 +623,60 @@ export const verifyGoalCompletion = async (goalDescription: string, userReasonin
       verified: false,
       feedback: 'Verification failed. Please try again with more specific details about your actions and results.'
     };
+  }
+};
+
+// CRITICAL: New function for AI conversation labeling
+export const generateConversationLabel = async (conversationTitle: string): Promise<{
+  label: string;
+  category: string;
+} | null> => {
+  if (!isOpenAIConfigured || !openai) {
+    // Demo labeling for common patterns
+    const title = conversationTitle.toLowerCase();
+    
+    if (title.includes('work') || title.includes('job') || title.includes('career')) {
+      return { label: "Career Development Discussion", category: "career" };
+    }
+    if (title.includes('health') || title.includes('exercise') || title.includes('fitness')) {
+      return { label: "Health & Wellness Planning", category: "health" };
+    }
+    if (title.includes('time') || title.includes('productivity') || title.includes('organize')) {
+      return { label: "Productivity & Time Management", category: "productivity" };
+    }
+    if (title.includes('goal') || title.includes('achieve') || title.includes('plan')) {
+      return { label: "Goal Setting & Planning", category: "goals" };
+    }
+    if (title.includes('relationship') || title.includes('family') || title.includes('friend')) {
+      return { label: "Relationship & Social Growth", category: "relationships" };
+    }
+    
+    return { label: "Personal Growth Conversation", category: "personal" };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [
+        { role: 'system', content: CONVERSATION_LABELING_PROMPT },
+        { role: 'user', content: `Conversation title: "${conversationTitle}"` }
+      ],
+      max_tokens: 100,
+      temperature: 0.3,
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    if (!content) return null;
+
+    try {
+      return JSON.parse(content);
+    } catch (parseError) {
+      console.error('Failed to parse conversation label JSON:', parseError);
+      return null;
+    }
+  } catch (error) {
+    console.error('Conversation labeling error:', error);
+    return null;
   }
 };
 

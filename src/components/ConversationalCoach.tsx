@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Clock, Target, X, CheckCircle, XCircle, ArrowRight, Pause } from 'lucide-react';
+import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target, X, CheckCircle, XCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
 import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { createConversation, getConversationMessages, saveMessage, updateConversation, updateDailyStreak } from '../services/database';
+import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { useGoals } from '../hooks/useGoals';
 import { TypewriterText } from './TypewriterText';
@@ -23,9 +23,6 @@ interface PendingGoal {
   id: string;
   description: string;
   messageId: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  xpValue: number;
-  deadline: Date;
 }
 
 export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
@@ -33,17 +30,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   onProfileUpdate
 }) => {
   const { user } = useAuth();
-  const { goals, addGoal, getGoalStats } = useGoals();
+  const { addGoal, goals } = useGoals();
   
   // Core conversation state
   const [activeConversationMessages, setActiveConversationMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
-  // AI State Machine
+  // CRITICAL: Enhanced AI State Machine with structured coaching cycle
   const [aiState, setAiState] = useState<AIState>('COACHING_Q1');
   const [goalProposed, setGoalProposed] = useState(false);
   const [userAcceptedGoal, setUserAcceptedGoal] = useState(false);
   const [userDeclinedGoal, setUserDeclinedGoal] = useState(false);
+  const [goalCount, setGoalCount] = useState(0);
   const [questionCount, setQuestionCount] = useState(0);
   const [pendingGoal, setPendingGoal] = useState<PendingGoal | null>(null);
   
@@ -56,12 +54,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   const [showEndChatButton, setShowEndChatButton] = useState(false);
-  const [showXPAnimation, setShowXPAnimation] = useState(false);
-  const [xpGained, setXpGained] = useState(0);
-  const [showContinueOptions, setShowContinueOptions] = useState(false);
-  const [isIdle, setIsIdle] = useState(false);
-  const [idleTimer, setIdleTimer] = useState<NodeJS.Timeout | null>(null);
+  
+  // Idle detection state
   const [lastActivityTime, setLastActivityTime] = useState<Date>(new Date());
+  const [showIdlePrompt, setShowIdlePrompt] = useState(false);
+  const idleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -73,6 +70,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   
   const {
     transcript,
@@ -99,109 +97,35 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // Enhanced idle detection - show close options after 5 minutes of inactivity
+  // CRITICAL: Idle detection with 5-minute timeout
   useEffect(() => {
     const resetIdleTimer = () => {
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-      
-      setIsIdle(false);
       setLastActivityTime(new Date());
+      setShowIdlePrompt(false);
+      
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+      }
       
       // Only set idle timer if conversation is active and not completed
-      if (hasStartedSession && !isConversationCompleted && !pendingGoal && !showContinueOptions) {
-        const timer = setTimeout(() => {
-          setIsIdle(true);
-        }, 300000); // 5 minutes (300,000 ms)
-        
-        setIdleTimer(timer);
+      if (hasStartedSession && !isConversationCompleted && activeConversationMessages.length > 0) {
+        idleTimeoutRef.current = setTimeout(() => {
+          setShowIdlePrompt(true);
+          setShowEndChatButton(true);
+        }, 5 * 60 * 1000); // 5 minutes
       }
     };
 
+    // Reset timer on any activity
     resetIdleTimer();
 
+    // Cleanup on unmount
     return () => {
-      if (idleTimer) {
-        clearTimeout(idleTimer);
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
       }
     };
-  }, [activeConversationMessages, hasStartedSession, isConversationCompleted, pendingGoal, showContinueOptions]);
-
-  // Generate conversation title using AI based on conversation content
-  const generateConversationTitle = async (messages: Message[]): Promise<string> => {
-    if (!isOpenAIConfigured) {
-      // Fallback to simple title generation
-      const userMessages = messages.filter(m => m.role === 'user');
-      if (userMessages.length > 0) {
-        const firstMessage = userMessages[0].content;
-        const words = firstMessage.trim().split(' ').slice(0, 4);
-        return words.join(' ') + (firstMessage.length > words.join(' ').length ? '...' : '');
-      }
-      return 'New Conversation';
-    }
-
-    try {
-      // Use OpenAI to generate a meaningful title
-      const conversationSummary = messages
-        .filter(m => m.role === 'user')
-        .map(m => m.content)
-        .join(' ')
-        .substring(0, 500); // Limit to 500 chars
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4',
-          messages: [
-            {
-              role: 'system',
-              content: 'Generate a short, descriptive title (3-5 words) for this coaching conversation. Focus on the main topic or challenge discussed. Examples: "Career Change Planning", "Time Management Goals", "Relationship Communication", "Productivity Challenges".'
-            },
-            {
-              role: 'user',
-              content: `Conversation content: ${conversationSummary}`
-            }
-          ],
-          max_tokens: 20,
-          temperature: 0.7
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const title = data.choices[0]?.message?.content?.trim();
-        return title || 'Coaching Session';
-      }
-    } catch (error) {
-      console.error('Error generating AI title:', error);
-    }
-
-    // Fallback to topic-based title
-    const content = messages.filter(m => m.role === 'user').map(m => m.content).join(' ').toLowerCase();
-    
-    if (content.includes('career') || content.includes('job') || content.includes('work')) {
-      return 'Career Discussion';
-    } else if (content.includes('relationship') || content.includes('family') || content.includes('friend')) {
-      return 'Relationship Coaching';
-    } else if (content.includes('time') || content.includes('productivity') || content.includes('organize')) {
-      return 'Productivity Planning';
-    } else if (content.includes('health') || content.includes('fitness') || content.includes('exercise')) {
-      return 'Health & Wellness';
-    } else if (content.includes('stress') || content.includes('anxiety') || content.includes('overwhelm')) {
-      return 'Stress Management';
-    } else if (content.includes('goal') || content.includes('achieve') || content.includes('plan')) {
-      return 'Goal Setting';
-    } else if (content.includes('decision') || content.includes('choose') || content.includes('option')) {
-      return 'Decision Making';
-    } else {
-      return 'Personal Growth';
-    }
-  };
+  }, [hasStartedSession, isConversationCompleted, activeConversationMessages.length, inputText, isLoading]);
 
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
@@ -227,11 +151,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       // If loading a completed conversation, add a welcome back message
       if (isCompleted && conversationMessages.length > 0) {
-        const goalStats = getGoalStats();
         const welcomeBackMessage: Message = {
           id: `welcome_${Date.now()}`,
           role: 'assistant',
-          content: `Welcome back! I can see we had a great conversation here. ${goalStats.total > 0 ? `You currently have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What new challenge would you like to work on today?`,
+          content: "Welcome back! I can see we had a great conversation here. What new challenge would you like to work on today?",
           timestamp: new Date()
         };
         
@@ -259,6 +182,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const analyzeAIStateFromMessages = (messages: Message[]) => {
     const assistantMessages = messages.filter(m => m.role === 'assistant');
+    const userMessages = messages.filter(m => m.role === 'user');
+    
+    // Count goals created in this conversation
+    const goalsCreated = assistantMessages.filter(m => m.content.includes('[GOAL]')).length;
+    setGoalCount(goalsCreated);
     
     // Count coaching questions (not including goal propositions)
     const coachingQuestions = assistantMessages.filter(m => 
@@ -291,8 +219,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         
         if (accepted || declined) {
           // After goal response, determine next state
-          const goalStats = getGoalStats();
-          if (goalStats.total >= 3) {
+          if (goalsCreated >= 3) {
             setAiState('ASKING_TO_CONCLUDE');
           } else {
             setAiState('COACHING_Q1'); // Start new cycle
@@ -322,10 +249,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const handleNewConversation = async () => {
     if (!user) return;
 
-    const goalStats = getGoalStats();
     const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What challenge or goal would you like to work on today?`
-      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What challenge or goal would you like to work on today?`;
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What challenge or goal would you like to work on today?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}What challenge or goal would you like to work on today?`;
     
     const assistantMessage: Message = {
       id: uuidv4(),
@@ -347,13 +273,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setGoalProposed(false);
       setUserAcceptedGoal(false);
       setUserDeclinedGoal(false);
+      setGoalCount(0);
       setQuestionCount(0);
       setPendingGoal(null);
       setIsConversationCompleted(false);
       setShowEndChatButton(false);
-      setShowContinueOptions(false);
-      setIsIdle(false);
-      setLastActivityTime(new Date());
+      setShowIdlePrompt(false);
       setAiState('COACHING_Q1');
       setInputText('');
       resetTranscript();
@@ -409,50 +334,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  // Goal detection and handling
+  // CRITICAL: Enhanced goal detection and handling
   const detectGoalInMessage = (content: string): boolean => {
     return content.includes('[GOAL]');
   };
 
   const extractGoalFromMessage = (content: string): string => {
+    // Extract goal description after "[GOAL]" tag and "Can I suggest a challenge based on our conversation?"
     const goalMatch = content.match(/\[GOAL\].*?Can I suggest a challenge based on our conversation\?\s*(.+)/);
     return goalMatch ? goalMatch[1].trim() : content.replace('[GOAL]', '').trim();
   };
 
-  // Create goal object with proper structure
-  const createGoalFromDescription = (description: string): PendingGoal => {
-    // Calculate deadline based on goal complexity
-    const deadline = new Date();
-    if (description.toLowerCase().includes('today') || description.toLowerCase().includes('now')) {
-      deadline.setHours(deadline.getHours() + 24);
-    } else if (description.toLowerCase().includes('week')) {
-      deadline.setDate(deadline.getDate() + 7);
-    } else {
-      deadline.setDate(deadline.getDate() + 3); // Default 3 days
-    }
-
-    // Determine difficulty based on description
-    let difficulty: 'easy' | 'medium' | 'hard' = 'medium';
-    if (description.toLowerCase().includes('research') || description.toLowerCase().includes('write down') || description.toLowerCase().includes('list')) {
-      difficulty = 'easy';
-    } else if (description.toLowerCase().includes('conversation') || description.toLowerCase().includes('plan') || description.toLowerCase().includes('organize')) {
-      difficulty = 'hard';
-    }
-
-    // Calculate XP based on difficulty
-    const xpValues = { easy: 50, medium: 75, hard: 100 };
-
-    return {
-      id: uuidv4(),
-      description,
-      messageId: '',
-      difficulty,
-      xpValue: xpValues[difficulty],
-      deadline
-    };
-  };
-
-  // Handle goal acceptance/decline with proper goal creation
+  // CRITICAL: Handle goal acceptance/decline with UI buttons
   const handleGoalResponse = async (accepted: boolean) => {
     if (!pendingGoal || !currentConversationId || !user) return;
 
@@ -471,28 +364,51 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // Create and add goal to global goals system IMMEDIATELY
-        const newGoal = {
-          id: pendingGoal.id,
-          description: pendingGoal.description,
-          difficulty: pendingGoal.difficulty,
-          xpValue: pendingGoal.xpValue,
-          deadline: pendingGoal.deadline,
-          completed: false,
-          createdAt: new Date(),
-          motivation: 7 // Default motivation level
-        };
+        // CRITICAL: Create goal in database when accepted
+        const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
+        const generatedGoal = await generateGoalFromConversation(conversationHistory);
         
-        // Add to global goals system immediately for instant visibility
-        await addGoal(newGoal, currentConversationId);
-        
-        console.log(`✅ Goal accepted and added to global goals system:`, newGoal.description);
-        
-        setUserAcceptedGoal(true);
-        setUserDeclinedGoal(false);
-        
-        // Show continuation options after goal acceptance
-        setShowContinueOptions(true);
+        if (generatedGoal) {
+          // Calculate deadline based on timeframe
+          let deadline = new Date();
+          switch (generatedGoal.timeframe) {
+            case '24 hours':
+              deadline.setHours(deadline.getHours() + 24);
+              break;
+            case '3 days':
+              deadline.setDate(deadline.getDate() + 3);
+              break;
+            case '1 week':
+              deadline.setDate(deadline.getDate() + 7);
+              break;
+            default:
+              deadline.setDate(deadline.getDate() + 3); // Default to 3 days
+          }
+
+          const goal = {
+            id: uuidv4(),
+            description: pendingGoal.description,
+            xpValue: generatedGoal.xpValue,
+            difficulty: generatedGoal.difficulty,
+            motivation: 7,
+            completed: false,
+            createdAt: new Date(),
+            deadline: deadline
+          };
+          
+          // Save goal using the goals hook
+          await addGoal(goal, currentConversationId);
+          console.log(`✅ Goal accepted and created:`, goal.description);
+          
+          // Increment goal count and update state
+          const newGoalCount = goalCount + 1;
+          setGoalCount(newGoalCount);
+          setUserAcceptedGoal(true);
+          setUserDeclinedGoal(false);
+          
+          // CRITICAL: Force refresh of goals in sidebar by updating context
+          setContext(prev => ({ ...prev, lastGoalCreated: Date.now() }));
+        }
       } else {
         setUserDeclinedGoal(true);
         setUserAcceptedGoal(false);
@@ -501,8 +417,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       // Clear pending goal
       setPendingGoal(null);
 
-      // Generate AI response with updated goal context
-      const goalStats = getGoalStats();
+      // Generate AI response with goal memory
+      const activeGoals = goals.filter(g => !g.completed).length;
+      const completedGoals = goals.filter(g => g.completed).length;
+      
       const contextForAI = {
         userName: userProfile?.name,
         previousGoals: userProfile?.longTermGoals,
@@ -512,10 +430,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userAcceptedGoal: accepted,
         userDeclinedGoal: !accepted,
         messageCount: newMessages.length,
-        goalCount: goalStats.total,
+        goalCount: accepted ? goalCount + 1 : goalCount,
         questionCount,
-        activeGoals: goalStats.pending,
-        completedGoals: goalStats.completed
+        activeGoals: accepted ? activeGoals + 1 : activeGoals,
+        completedGoals
       };
 
       const aiResponse = await generateCoachingResponse({
@@ -526,16 +444,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         context: contextForAI
       });
 
-      // Enhanced response for goal acceptance
-      let responseContent = aiResponse.response;
-      if (accepted) {
-        responseContent = `Perfect! I've added that challenge to your goals. You can track your progress in the goals panel on the right. ${aiResponse.response}`;
-      }
-
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: responseContent,
+        content: aiResponse.response,
         timestamp: new Date()
       };
 
@@ -556,80 +468,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          await playCoachResponse(responseContent.replace('[GOAL]', ''));
+          await playCoachResponse(aiResponse.response);
         }
-      }, responseContent.length * 25);
+      }, aiResponse.response.length * 25);
 
     } catch (error) {
       console.error('Error handling goal response:', error);
-    }
-  };
-
-  // Handle continuation choice after goal acceptance
-  const handleContinueChoice = async (continueConversation: boolean) => {
-    setShowContinueOptions(false);
-    
-    if (continueConversation) {
-      // Continue with new coaching cycle
-      const goalStats = getGoalStats();
-      const continueMessage: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: `Great! You now have ${goalStats.pending} active goals to work on. What else would you like to explore?`,
-        timestamp: new Date()
-      };
-      
-      setActiveConversationMessages(prev => [...prev, continueMessage]);
-      setCurrentlyTyping(continueMessage.id);
-      setAiState('COACHING_Q1');
-      setQuestionCount(0);
-      
-      if (currentConversationId) {
-        await saveMessage(currentConversationId, continueMessage);
-      }
-      
-      setTimeout(() => {
-        setCurrentlyTyping(null);
-        if (voiceEnabled && isElevenLabsConfigured) {
-          playCoachResponse(continueMessage.content);
-        }
-      }, continueMessage.content.length * 25);
-    } else {
-      // End conversation
-      await handleEndChat();
-    }
-  };
-
-  // Enhanced idle conversation handling with AI-generated titles
-  const handleIdleChoice = async (continueConversation: boolean) => {
-    setIsIdle(false);
-    
-    if (continueConversation) {
-      // Continue conversation - just reset idle state
-      const goalStats = getGoalStats();
-      const continueMessage: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: `I'm here when you're ready! ${goalStats.pending > 0 ? `You have ${goalStats.pending} active goals to work on, or ` : ''}What would you like to talk about?`,
-        timestamp: new Date()
-      };
-      
-      setActiveConversationMessages(prev => [...prev, continueMessage]);
-      setCurrentlyTyping(continueMessage.id);
-      
-      if (currentConversationId) {
-        await saveMessage(currentConversationId, continueMessage);
-      }
-      
-      setTimeout(() => {
-        setCurrentlyTyping(null);
-        if (voiceEnabled && isElevenLabsConfigured) {
-          playCoachResponse(continueMessage.content);
-        }
-      }, continueMessage.content.length * 25);
-    } else {
-      // Close conversation with AI-generated title
-      await handleEndChat();
     }
   };
 
@@ -637,8 +481,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     if (!content.trim() || isLoading || !user || !currentConversationId) return;
 
     setIsLoading(true);
-    setIsIdle(false); // Reset idle state on user activity
-    setLastActivityTime(new Date());
+    setShowIdlePrompt(false); // Hide idle prompt when user is active
     
     const userMessage: Message = {
       id: uuidv4(),
@@ -659,8 +502,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
-      // Enhanced context for AI with structured coaching cycle and goal memory
-      const goalStats = getGoalStats();
+      // CRITICAL: Enhanced context for AI with goal memory
+      const activeGoals = goals.filter(g => !g.completed).length;
+      const completedGoals = goals.filter(g => g.completed).length;
+      
       let contextForAI = {
         userName: userProfile?.name,
         previousGoals: userProfile?.longTermGoals,
@@ -670,10 +515,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userAcceptedGoal,
         userDeclinedGoal,
         messageCount: newMessages.length,
-        goalCount: goalStats.total,
+        goalCount,
         questionCount,
-        activeGoals: goalStats.pending,
-        completedGoals: goalStats.completed
+        activeGoals,
+        completedGoals
       };
 
       // Generate AI response using enhanced state machine
@@ -694,16 +539,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       let finalMessages = [...newMessages, assistantMessage];
 
-      // Handle goal proposition with pending state
+      // CRITICAL: Handle goal proposition with pending state
       if (detectGoalInMessage(aiResponse.response)) {
         console.log('🎯 GOAL DETECTED: Setting up pending goal for user response');
         setGoalProposed(true);
         
         const goalDescription = extractGoalFromMessage(aiResponse.response);
-        const goalObject = createGoalFromDescription(goalDescription);
-        
         setPendingGoal({
-          ...goalObject,
+          id: uuidv4(),
+          description: goalDescription,
           messageId: assistantMessage.id
         });
         
@@ -755,19 +599,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   };
 
   const handleEndChat = async () => {
-    if (currentConversationId && activeConversationMessages.length > 2) {
-      // Generate AI title for the conversation before ending
-      try {
-        const aiTitle = await generateConversationTitle(activeConversationMessages);
-        await updateConversation(currentConversationId, { 
-          completed: true,
-          title: aiTitle
-        });
-        console.log('✅ Conversation ended with AI-generated title:', aiTitle);
-      } catch (error) {
-        console.error('Error generating conversation title:', error);
-        await updateConversation(currentConversationId, { completed: true });
-      }
+    if (currentConversationId) {
+      await updateConversation(currentConversationId, { completed: true });
     }
     
     // Reset to start page
@@ -778,18 +611,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setGoalProposed(false);
     setUserAcceptedGoal(false);
     setUserDeclinedGoal(false);
+    setGoalCount(0);
     setQuestionCount(0);
     setPendingGoal(null);
     setIsConversationCompleted(false);
     setShowEndChatButton(false);
-    setShowContinueOptions(false);
-    setIsIdle(false);
+    setShowIdlePrompt(false);
     setInputText('');
     resetTranscript();
     
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      setIdleTimer(null);
+    // Clear idle timer
+    if (idleTimeoutRef.current) {
+      clearTimeout(idleTimeoutRef.current);
     }
   };
 
@@ -826,14 +659,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   };
 
   const stageInfo = getStageInfo();
-  const goalStats = getGoalStats();
-
-  // Calculate idle time for display
-  const getIdleTime = () => {
-    const now = new Date();
-    const diffInMinutes = Math.floor((now.getTime() - lastActivityTime.getTime()) / (1000 * 60));
-    return diffInMinutes;
-  };
 
   // Show start page if no session has started
   if (!hasStartedSession) {
@@ -848,18 +673,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
-      {/* XP Animation */}
-      {showXPAnimation && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-60 pointer-events-none">
-          <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-full shadow-2xl animate-bounce">
-            <div className="flex items-center space-x-2">
-              <CheckCircle className="w-5 h-5" />
-              <span className="font-bold">+{xpGained} XP!</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       <SessionSidebar 
         isOpen={leftSidebarOpen}
         onClose={() => setLeftSidebarOpen(false)}
@@ -901,50 +714,34 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
                   <p className="text-sm text-purple-200">
-                    {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {goalStats.pending} active goals
-                    {isIdle && <span className="text-orange-300"> • Idle {getIdleTime()}m</span>}
+                    {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {goalCount} goals
                   </p>
                 </div>
               </div>
             </div>
 
             {userProfile && (
-              <div className="hidden md:flex items-center space-x-4">
-                {/* Level Display */}
-                <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-1 rounded-full border border-yellow-500/30">
-                  <span className="text-yellow-300 font-medium text-sm">Level {userProfile.level || 1}</span>
-                  <span className="text-yellow-200 text-xs">{userProfile.totalXP || 0} XP</span>
-                </div>
-                
-                {/* Goals Count */}
-                <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-3 py-1 rounded-full border border-purple-500/30">
-                  <span className="text-purple-300 font-medium text-sm">{goalStats.completed}/{goalStats.total}</span>
-                  <span className="text-purple-200 text-xs">goals</span>
-                </div>
-                
-                {/* Streak Display */}
-                <div className="flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
-                  <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
-                  <span className="text-orange-200 text-xs">day streak</span>
-                </div>
+              <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
+                <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
+                <span className="text-orange-200 text-xs">day streak</span>
               </div>
             )}
             
             <div className="flex items-center space-x-1">
-              {/* End Chat Button - Always visible for idle conversations */}
-              {(showEndChatButton || isIdle) && (
+              {/* CRITICAL: Enhanced End Chat Button - Shows after goals OR idle timeout */}
+              {(showEndChatButton && (goalCount >= 2 || showIdlePrompt)) && (
                 <button
                   onClick={handleEndChat}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-full border transition-all duration-300 animate-fade-in ${
-                    isIdle 
-                      ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-300 border-orange-500/30 hover:bg-orange-500/30'
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-full border font-medium transition-all duration-300 animate-fade-in ${
+                    showIdlePrompt 
+                      ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 text-yellow-300 border-yellow-500/30 hover:bg-yellow-500/30'
                       : 'bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30'
                   }`}
-                  title={isIdle ? "Close idle conversation" : "End conversation"}
+                  title={showIdlePrompt ? "Session idle - end chat?" : "End conversation"}
                 >
                   <X className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {isIdle ? 'Close Chat' : 'End Chat'}
+                  <span className="text-sm">
+                    {showIdlePrompt ? 'End Idle Chat' : 'End Chat'}
                   </span>
                 </button>
               )}
@@ -984,9 +781,32 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               </p>
             </div>
           )}
+
+          {/* CRITICAL: Idle Prompt Banner */}
+          {showIdlePrompt && (
+            <div className="mt-3 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20 rounded-lg p-3 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-yellow-400" />
+                  <span className="text-yellow-300 text-sm font-medium">
+                    You've been idle for 5 minutes. Would you like to end this conversation?
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowIdlePrompt(false)}
+                  className="text-yellow-400 hover:text-yellow-300 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll">
+        <div 
+          ref={chatContainerRef}
+          className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
+        >
           {activeConversationMessages.map((message, index) => (
             <div key={message.id}>
               <div
@@ -1007,6 +827,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                     />
                   ) : (
                     <p className="text-sm leading-relaxed">
+                      {/* CRITICAL: Remove [GOAL] tag from display but keep original content for processing */}
                       {message.content.replace('[GOAL]', '')}
                     </p>
                   )}
@@ -1025,7 +846,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               </div>
 
-              {/* Goal Accept/Decline Buttons */}
+              {/* CRITICAL: Goal Accept/Decline Buttons */}
               {pendingGoal && pendingGoal.messageId === message.id && (
                 <div className="flex justify-start mt-4 animate-fade-in">
                   <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-4 border border-blue-500/20 backdrop-blur-sm">
@@ -1044,61 +865,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                       >
                         <XCircle className="w-4 h-4" />
                         <span>Decline</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Continue/End Options after goal acceptance */}
-              {showContinueOptions && index === activeConversationMessages.length - 1 && (
-                <div className="flex justify-start mt-4 animate-fade-in">
-                  <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-xl p-4 border border-green-500/20 backdrop-blur-sm">
-                    <p className="text-white text-sm mb-3 font-medium">Your goal has been added! What would you like to do next?</p>
-                    <div className="flex space-x-3">
-                      <button
-                        onClick={() => handleContinueChoice(true)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
-                      >
-                        <ArrowRight className="w-4 h-4" />
-                        <span>Continue Coaching</span>
-                      </button>
-                      <button
-                        onClick={() => handleContinueChoice(false)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>End Session</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Enhanced Idle Options - Show after 5 minutes of inactivity */}
-              {isIdle && index === activeConversationMessages.length - 1 && !showContinueOptions && !pendingGoal && (
-                <div className="flex justify-start mt-4 animate-fade-in">
-                  <div className="bg-gradient-to-r from-orange-500/10 to-yellow-500/10 rounded-xl p-4 border border-orange-500/20 backdrop-blur-sm">
-                    <div className="flex items-center space-x-2 mb-3">
-                      <Pause className="w-4 h-4 text-orange-400" />
-                      <p className="text-white text-sm font-medium">
-                        You've been idle for {getIdleTime()} minutes. What would you like to do?
-                      </p>
-                    </div>
-                    <div className="flex space-x-3">
-                      <button
-                        onClick={() => handleIdleChoice(true)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
-                      >
-                        <ArrowRight className="w-4 h-4" />
-                        <span>Continue</span>
-                      </button>
-                      <button
-                        onClick={() => handleIdleChoice(false)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>Close Chat</span>
                       </button>
                     </div>
                   </div>
@@ -1136,10 +902,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 className={`w-full p-4 pr-14 border-2 rounded-2xl bg-slate-700/50 text-white placeholder-purple-300 focus:ring-4 focus:ring-purple-500/30 focus:border-purple-400 transition-all duration-300 backdrop-blur-sm ${
                   isListening ? 'border-pink-400 bg-pink-500/10' : 'border-purple-500/30'
                 }`}
-                disabled={isLoading || isListening || isConversationCompleted || !!pendingGoal || showContinueOptions}
+                disabled={isLoading || isListening || isConversationCompleted || !!pendingGoal}
               />
               
-              {speechSupported && !isConversationCompleted && !pendingGoal && !showContinueOptions && (
+              {speechSupported && !isConversationCompleted && !pendingGoal && (
                 <button
                   type="button"
                   onClick={handleVoiceInput}
@@ -1157,9 +923,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             
             <button
               type="submit"
-              disabled={!inputText.trim() || isLoading || isConversationCompleted || !!pendingGoal || showContinueOptions}
+              disabled={!inputText.trim() || isLoading || isConversationCompleted || !!pendingGoal}
               className={`p-4 rounded-2xl font-medium transition-all duration-300 transform ${
-                inputText.trim() && !isLoading && !isConversationCompleted && !pendingGoal && !showContinueOptions
+                inputText.trim() && !isLoading && !isConversationCompleted && !pendingGoal
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-500/25 hover:shadow-xl hover:scale-105'
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
               }`}
@@ -1185,27 +951,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             </div>
           )}
 
-          {showContinueOptions && (
+          {isConversationCompleted && goalCount >= 2 && (
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Choose your next step above to continue</span>
-              </div>
-            </div>
-          )}
-
-          {isIdle && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-orange-500/10 text-orange-300 rounded-full border border-orange-500/20 backdrop-blur-sm">
-                <Pause className="w-4 h-4" />
-                <span className="text-sm font-medium">Session idle for {getIdleTime()} minutes - choose an option above</span>
-              </div>
-            </div>
-          )}
-
-          {isConversationCompleted && goalStats.pending >= 2 && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Great session! You created {goalStats.pending} actionable goals. Use "End Chat" to finish or continue exploring.</span>
+                <span className="text-sm font-medium">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
               </div>
             </div>
           )}
