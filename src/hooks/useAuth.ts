@@ -155,6 +155,11 @@ export const useAuth = () => {
     try {
       const { error } = await supabase.auth.signOut();
       console.log('Sign out result:', { error });
+      
+      // Clear local state immediately
+      setUser(null);
+      setSession(null);
+      
       return { error };
     } catch (error) {
       console.error('Sign out error:', error);
