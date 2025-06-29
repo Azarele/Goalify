@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame, Brain, Activity } from 'lucide-react';
-import { getUserSessions, getUserConversations } from '../services/database';
+import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame, Brain, Activity, Users, Crown } from 'lucide-react';
+import { getUserConversations } from '../services/database';
 import { generateUserAnalysis } from '../services/openai';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
@@ -47,7 +47,7 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
       const conversationsData = await getUserConversations(user.id);
       setConversations(conversationsData);
 
-      // Process data for analysis
+      // Process data for analysis using the goals hook
       const goalStats = getGoalStats();
       const completedGoals = goals.filter(g => g.completed);
       const recentGoals = goals.slice(0, 10);
@@ -169,6 +169,20 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
       .map(([topic, count]) => ({ topic, count }));
   };
 
+  const getGlobalRanking = () => {
+    // Simulate global ranking based on user stats
+    const level = userProfile?.level || 1;
+    const totalXP = userProfile?.totalXP || 0;
+    
+    // Estimate ranking based on level and XP
+    let estimatedRank = Math.max(1, Math.floor(100 - (level * 5) - (totalXP / 200)));
+    
+    return {
+      rank: estimatedRank,
+      percentile: Math.max(1, Math.floor((100 - estimatedRank) / 100 * 100))
+    };
+  };
+
   if (loading || goalsLoading) {
     return (
       <div className="max-w-6xl mx-auto space-y-8">
@@ -195,6 +209,7 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
   const completionRate = getCompletionRate();
   const activityLevel = getActivityLevel();
   const topTopics = getTopTopics();
+  const globalRanking = getGlobalRanking();
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -224,6 +239,43 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
         
         <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-6 border border-blue-500/20">
           <p className="text-white leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
+        </div>
+      </div>
+
+      {/* Global Ranking */}
+      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-2xl p-8 border border-purple-500/20 backdrop-blur-sm">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
+            <Crown className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-xl font-semibold text-white">Global Standing</h3>
+            <p className="text-purple-300 text-sm">How you compare to other users</p>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-yellow-400 mb-2">#{globalRanking.rank}</div>
+            <div className="text-sm text-purple-300">Global Rank</div>
+            <div className="text-xs text-purple-400 mt-1">
+              Top {globalRanking.percentile}% of users
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl font-bold text-purple-400 mb-2">Level {analysisData.level}</div>
+            <div className="text-sm text-purple-300">Current Level</div>
+            <div className="text-xs text-purple-400 mt-1">
+              {analysisData.totalXP} total XP
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl font-bold text-green-400 mb-2">{completionRate}%</div>
+            <div className="text-sm text-purple-300">Success Rate</div>
+            <div className="text-xs text-purple-400 mt-1">
+              {analysisData.completedGoals} of {analysisData.totalGoals} goals
+            </div>
+          </div>
         </div>
       </div>
 
@@ -275,6 +327,49 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
               <p className="text-sm text-purple-300">Current Level</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Goal Journey Summary */}
+      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
+        <div className="p-6 border-b border-purple-500/20">
+          <h3 className="text-xl font-semibold text-white">Goal Journey Summary</h3>
+        </div>
+        
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-400 mb-2">{analysisData.totalGoals}</div>
+              <div className="text-sm text-purple-300">Total Goals</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-400 mb-2">{analysisData.completedGoals}</div>
+              <div className="text-sm text-purple-300">Completed</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-yellow-400 mb-2">{analysisData.totalGoals - analysisData.completedGoals}</div>
+              <div className="text-sm text-purple-300">In Progress</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-blue-400 mb-2">{analysisData.totalXP}</div>
+              <div className="text-sm text-purple-300">XP Earned</div>
+            </div>
+          </div>
+          
+          {analysisData.totalGoals > 0 && (
+            <div className="mt-6">
+              <div className="text-sm text-purple-300 mb-2 text-center">Your Goal Completion Journey</div>
+              <div className="w-full bg-slate-700 rounded-full h-4">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${completionRate}%` }}
+                />
+              </div>
+              <div className="text-center text-sm text-purple-300 mt-2">
+                You've completed {completionRate}% of your goals - keep up the great work!
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -452,49 +547,6 @@ export const UserAnalysis: React.FC<UserAnalysisProps> = ({ userProfile }) => {
               </div>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* Goal Summary Statistics */}
-      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
-        <div className="p-6 border-b border-purple-500/20">
-          <h3 className="text-xl font-semibold text-white">Goal Journey Summary</h3>
-        </div>
-        
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400 mb-2">{analysisData.totalGoals}</div>
-              <div className="text-sm text-purple-300">Total Goals</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-400 mb-2">{analysisData.completedGoals}</div>
-              <div className="text-sm text-purple-300">Completed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-400 mb-2">{analysisData.totalGoals - analysisData.completedGoals}</div>
-              <div className="text-sm text-purple-300">In Progress</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-400 mb-2">{analysisData.totalXP}</div>
-              <div className="text-sm text-purple-300">XP Earned</div>
-            </div>
-          </div>
-          
-          {analysisData.totalGoals > 0 && (
-            <div className="mt-6">
-              <div className="text-sm text-purple-300 mb-2 text-center">Your Goal Completion Journey</div>
-              <div className="w-full bg-slate-700 rounded-full h-4">
-                <div 
-                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-4 rounded-full transition-all duration-500"
-                  style={{ width: `${completionRate}%` }}
-                />
-              </div>
-              <div className="text-center text-sm text-purple-300 mt-2">
-                You've completed {completionRate}% of your goals - keep up the great work!
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

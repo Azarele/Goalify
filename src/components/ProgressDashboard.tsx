@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame } from 'lucide-react';
+import { BarChart3, Target, TrendingUp, Calendar, CheckCircle, Star, Trophy, Award, Zap, Flame, Users, Crown } from 'lucide-react';
 import { getUserConversations } from '../services/database';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
 import { useGoals } from '../hooks/useGoals';
+import { GlobalLeaderboard } from './GlobalLeaderboard';
 
 interface ProgressDashboardProps {
   userProfile: UserProfile | null;
@@ -14,6 +15,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
   const { goals, loading: goalsLoading, getGoalStats } = useGoals();
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -79,14 +81,26 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
     if (goalStats.completed >= 10) {
       achievements.push({ title: "Achiever", icon: "🏆", description: "Completed 10 goals" });
     }
+    if (goalStats.completed >= 25) {
+      achievements.push({ title: "Goal Master", icon: "👑", description: "Completed 25 goals" });
+    }
     if (currentLevel >= 5) {
       achievements.push({ title: "Level Up", icon: "🚀", description: "Reached Level 5" });
+    }
+    if (currentLevel >= 10) {
+      achievements.push({ title: "Elite", icon: "💎", description: "Reached Level 10" });
     }
     if (weeklyProgress.completed >= 3) {
       achievements.push({ title: "Weekly Warrior", icon: "⚡", description: "Completed 3 goals this week" });
     }
     if (dailyStreak >= 7) {
       achievements.push({ title: "Week Streak", icon: "🔥", description: "7-day streak achieved" });
+    }
+    if (dailyStreak >= 30) {
+      achievements.push({ title: "Consistency King", icon: "👑", description: "30-day streak achieved" });
+    }
+    if (goalStats.completionRate >= 80 && goalStats.total >= 10) {
+      achievements.push({ title: "High Achiever", icon: "🌟", description: "80%+ completion rate" });
     }
     
     return achievements;
@@ -199,6 +213,52 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
         </div>
       </div>
 
+      {/* Global Leaderboard Section */}
+      <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
+        <div className="p-6 border-b border-purple-500/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Crown className="w-6 h-6 text-yellow-400" />
+              <h3 className="text-xl font-semibold text-white">Global Leaderboard</h3>
+            </div>
+            <button
+              onClick={() => setShowLeaderboard(!showLeaderboard)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-all duration-300"
+            >
+              <Users className="w-4 h-4" />
+              <span>{showLeaderboard ? 'Hide' : 'View'} Leaderboard</span>
+            </button>
+          </div>
+        </div>
+        
+        {showLeaderboard ? (
+          <GlobalLeaderboard userProfile={userProfile} />
+        ) : (
+          <div className="p-6">
+            <div className="text-center">
+              <div className="text-sm text-purple-300 mb-2">Your Global Ranking</div>
+              <div className="flex items-center justify-center space-x-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-400">Level {currentLevel}</div>
+                  <div className="text-xs text-purple-300">Current Level</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-400">{totalXP}</div>
+                  <div className="text-xs text-purple-300">Total XP</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">{goalStats.completed}</div>
+                  <div className="text-xs text-purple-300">Goals Completed</div>
+                </div>
+              </div>
+              <p className="text-purple-400 text-sm mt-3">
+                Click "View Leaderboard" to see how you rank against other users!
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Weekly Progress */}
       <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
         <div className="p-6 border-b border-purple-500/20">
@@ -234,6 +294,9 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
             <div className="flex items-center space-x-2">
               <Award className="w-6 h-6 text-yellow-400" />
               <h3 className="text-xl font-semibold text-white">Achievements</h3>
+              <span className="text-sm bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full">
+                {achievements.length}
+              </span>
             </div>
           </div>
           
@@ -260,7 +323,7 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
         {/* Pending Goals */}
         <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl border border-purple-500/20 backdrop-blur-sm">
           <div className="p-6 border-b border-purple-500/20">
-            <h3 className="text-lg font-semibold text-white">Pending Goals</h3>
+            <h3 className="text-lg font-semibold text-white">Active Goals</h3>
           </div>
           
           <div className="p-6">
@@ -280,6 +343,13 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
                           <Star className="w-3 h-3" />
                           <span>{goal.xpValue || 50} XP</span>
                         </div>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          goal.difficulty === 'easy' ? 'text-green-400 bg-green-500/20' :
+                          goal.difficulty === 'medium' ? 'text-yellow-400 bg-yellow-500/20' :
+                          'text-red-400 bg-red-500/20'
+                        }`}>
+                          {goal.difficulty}
+                        </span>
                         <span className="text-xs text-yellow-400">
                           Motivation: {goal.motivation}/10
                         </span>
@@ -289,12 +359,12 @@ export const ProgressDashboard: React.FC<ProgressDashboardProps> = ({ userProfil
                 ))}
                 {goalStats.pending > 5 && (
                   <div className="text-center text-sm text-purple-400">
-                    And {goalStats.pending - 5} more pending goals...
+                    And {goalStats.pending - 5} more active goals...
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-purple-300 text-center py-4">No pending goals</p>
+              <p className="text-purple-300 text-center py-4">No active goals</p>
             )}
           </div>
         </div>

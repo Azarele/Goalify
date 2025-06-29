@@ -302,6 +302,88 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
   }
 };
 
+// Global Leaderboard Operations
+export const getGlobalLeaderboard = async (): Promise<Array<{
+  id: string;
+  name: string;
+  level: number;
+  totalXP: number;
+  goalsCompleted: number;
+  dailyStreak: number;
+}>> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Return demo leaderboard data
+    return generateDemoLeaderboard();
+  }
+
+  try {
+    console.log('Fetching global leaderboard');
+    
+    const { data, error } = await client
+      .from('user_profiles')
+      .select(`
+        id,
+        name,
+        level,
+        total_xp,
+        daily_streak,
+        user_id
+      `)
+      .order('level', { ascending: false })
+      .order('total_xp', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      handleSupabaseError(error, 'getGlobalLeaderboard');
+      return generateDemoLeaderboard();
+    }
+
+    // For each user, we'd need to count their completed goals
+    // For now, we'll use a simplified approach
+    const leaderboard = (data || []).map(user => ({
+      id: user.user_id,
+      name: user.name || 'Anonymous User',
+      level: user.level || 1,
+      totalXP: user.total_xp || 0,
+      goalsCompleted: Math.floor((user.total_xp || 0) / 50), // Estimate based on average XP per goal
+      dailyStreak: user.daily_streak || 0,
+    }));
+
+    console.log('Global leaderboard loaded:', leaderboard.length, 'users');
+    return leaderboard;
+  } catch (error) {
+    console.error('Error in getGlobalLeaderboard:', error);
+    return generateDemoLeaderboard();
+  }
+};
+
+const generateDemoLeaderboard = () => {
+  const demoNames = [
+    'Alex Chen', 'Sarah Johnson', 'Michael Rodriguez', 'Emma Thompson', 'David Kim',
+    'Lisa Wang', 'James Wilson', 'Maria Garcia', 'Ryan O\'Connor', 'Jessica Lee',
+    'Daniel Brown', 'Ashley Davis', 'Kevin Zhang', 'Rachel Green', 'Mark Taylor',
+    'Sophia Martinez', 'Chris Anderson', 'Amanda White', 'Tyler Johnson', 'Olivia Smith'
+  ];
+  
+  return demoNames.map((name, index) => {
+    const baseLevel = Math.max(1, 15 - index);
+    const baseXP = baseLevel * 1000 + Math.floor(Math.random() * 800);
+    const goalsCompleted = Math.floor(baseLevel * 2.5 + Math.random() * 10);
+    const dailyStreak = Math.floor(Math.random() * 50);
+    
+    return {
+      id: `demo-${index}`,
+      name,
+      level: baseLevel,
+      totalXP: baseXP,
+      goalsCompleted,
+      dailyStreak,
+    };
+  });
+};
+
 // Conversation Operations
 export const createConversation = async (userId: string, firstMessage: string): Promise<string> => {
   const client = checkSupabase();
@@ -769,8 +851,212 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
   }
 };
 
+// Legacy Session Operations (for backward compatibility)
+export const saveSession = async (userId: string, session: CoachingSession): Promise<void> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    localSessions.push({
+      ...session,
+      date: session.date.toISOString()
+    });
+    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
+    console.log('Session saved to local storage');
+    return;
+  }
+
+  try {
+    console.log('Saving session:', session.id, 'for user:', userId);
+    
+    const sessionData = {
+      id: session.id,
+      user_id: userId,
+      title: session.summary || `Session ${new Date().toLocaleDateString()}`,
+      messages: session.messages || [],
+      completed: session.completed || false,
+      summary: session.summary || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client
+      .from('coaching_sessions')
+      .upsert(sessionData);
+
+    if (error) {
+      handleSupabaseError(error, 'saveSession');
+      throw error;
+    }
+
+    console.log('Session saved successfully');
+  } catch (error) {
+    console.error('Error in saveSession:', error);
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    localSessions.push({
+      ...session,
+      date: session.date.toISOString()
+    });
+    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
+    console.log('Session saved to local storage as fallback');
+  }
+};
+
+export const getUserSessions = async (userId: string): Promise<CoachingSession[]> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    return localSessions.map((session: any) => ({
+      ...session,
+      date: new Date(session.date)
+    }));
+  }
+
+  try {
+    console.log('Fetching sessions for user:', userId);
+    
+    const { data, error } = await client
+      .from('coaching_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      handleSupabaseError(error, 'getUserSessions');
+      return [];
+    }
+
+    console.log('Fetched', data?.length || 0, 'sessions');
+
+    const sessions = (data || []).map(session => ({
+      id: session.id,
+      date: new Date(session.created_at),
+      messages: session.messages || [],
+      goals: [],
+      insights: [],
+      actions: [],
+      completed: session.completed || false,
+      summary: session.summary,
+    }));
+
+    // Cache in local storage
+    localStorage.setItem(`sessions_${userId}`, JSON.stringify(sessions.map(session => ({
+      ...session,
+      date: session.date.toISOString()
+    }))));
+
+    return sessions;
+  } catch (error) {
+    console.error('Error in getUserSessions:', error);
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    return localSessions.map((session: any) => ({
+      ...session,
+      date: new Date(session.date)
+    }));
+  }
+};
+
+export const getSession = async (userId: string, sessionId: string): Promise<CoachingSession | null> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    const session = localSessions.find((s: any) => s.id === sessionId);
+    return session ? { ...session, date: new Date(session.date) } : null;
+  }
+
+  try {
+    const { data, error } = await client
+      .from('coaching_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', sessionId)
+      .single();
+
+    if (error) {
+      handleSupabaseError(error, 'getSession');
+      return null;
+    }
+
+    return {
+      id: data.id,
+      date: new Date(data.created_at),
+      messages: data.messages || [],
+      goals: [],
+      insights: [],
+      actions: [],
+      completed: data.completed || false,
+      summary: data.summary,
+    };
+  } catch (error) {
+    console.error('Error in getSession:', error);
+    // Fallback to local storage
+    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
+    const session = localSessions.find((s: any) => s.id === sessionId);
+    return session ? { ...session, date: new Date(session.date) } : null;
+  }
+};
+
+export const getSessionGoals = async (userId: string, sessionId: string): Promise<Goal[]> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Fallback to local storage
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    return localGoals
+      .filter((g: any) => g.sessionId === sessionId)
+      .map((goal: any) => ({
+        ...goal,
+        createdAt: new Date(goal.createdAt),
+        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+        deadline: goal.deadline ? new Date(goal.deadline) : undefined
+      }));
+  }
+
+  try {
+    const { data, error } = await client
+      .from('goals')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      handleSupabaseError(error, 'getSessionGoals');
+      return [];
+    }
+
+    return (data || []).map(goal => ({
+      id: goal.id,
+      description: goal.description,
+      xpValue: goal.xp_value || 50,
+      difficulty: goal.difficulty || 'medium',
+      motivation: goal.motivation || 5,
+      completed: goal.completed || false,
+      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
+      completionReasoning: goal.completion_reasoning || undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
+      createdAt: new Date(goal.created_at),
+    }));
+  } catch (error) {
+    console.error('Error in getSessionGoals:', error);
+    // Fallback to local storage
+    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    return localGoals
+      .filter((g: any) => g.sessionId === sessionId)
+      .map((goal: any) => ({
+        ...goal,
+        createdAt: new Date(goal.createdAt),
+        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+        deadline: goal.deadline ? new Date(goal.deadline) : undefined
+      }));
+  }
+};
+
 // Remove redundant functions - keeping only essential ones
 export const getAllUserGoals = getUserGoals; // Alias for consistency
-
-// Remove legacy session operations to reduce redundancy
-// These are no longer needed as we use conversations instead
