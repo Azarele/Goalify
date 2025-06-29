@@ -24,9 +24,23 @@ export const useGoals = () => {
       setLoading(true);
       const userGoals = await getAllUserGoals(user.id);
       setGoals(userGoals);
-      console.log('Goals loaded in useGoals hook:', userGoals.length);
+      console.log('✅ Goals loaded in useGoals hook:', userGoals.length, 'goals');
+      
+      // Log goal details for debugging
+      if (userGoals.length > 0) {
+        console.log('📊 Goal breakdown:', {
+          total: userGoals.length,
+          completed: userGoals.filter(g => g.completed).length,
+          pending: userGoals.filter(g => !g.completed).length,
+          recent: userGoals.slice(0, 3).map(g => ({ 
+            id: g.id.substring(0, 8), 
+            description: g.description.substring(0, 30) + '...', 
+            completed: g.completed 
+          }))
+        });
+      }
     } catch (error) {
-      console.error('Error loading goals:', error);
+      console.error('❌ Error loading goals:', error);
     } finally {
       setLoading(false);
     }
@@ -38,9 +52,9 @@ export const useGoals = () => {
     try {
       await saveGoal(user.id, sessionId, goal);
       setGoals(prev => [goal, ...prev]);
-      console.log('Goal added to global state:', goal.description);
+      console.log('✅ Goal added to global state:', goal.description);
     } catch (error) {
-      console.error('Error adding goal:', error);
+      console.error('❌ Error adding goal:', error);
     }
   };
 
@@ -76,10 +90,10 @@ export const useGoals = () => {
         g.id === goalId ? completedGoal : g
       ));
 
-      console.log('Goal completed with XP reward:', xpGained);
+      console.log('✅ Goal completed with XP reward:', xpGained);
       return { newXP, newLevel };
     } catch (error) {
-      console.error('Error completing goal:', error);
+      console.error('❌ Error completing goal:', error);
       return null;
     }
   };
@@ -118,12 +132,19 @@ export const useGoals = () => {
     };
   };
 
+  // CRITICAL: Force refresh goals from database
+  const refreshGoals = async () => {
+    console.log('🔄 Forcing goal refresh...');
+    await loadGoals();
+  };
+
   return {
     goals,
     loading,
     addGoal,
     completeGoal,
     loadGoals,
+    refreshGoals,
     getGoalStats
   };
 };

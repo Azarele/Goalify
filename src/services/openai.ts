@@ -41,12 +41,14 @@ export interface CoachingPrompt {
     userDeclinedGoal?: boolean;
     messageCount?: number;
     goalCount?: number;
-    questionCount?: number; // CRITICAL: Track questions asked
+    questionCount?: number;
+    activeGoals?: number;
+    completedGoals?: number;
   };
 }
 
-// CRITICAL: Core AI Persona with Structured Coaching Rules
-const GOALIFY_CORE_PROMPT = `You are Goalify, an AI Coach. Your primary role is to be a supportive, non-directive thinking partner. You do not give advice, share opinions, or solve problems for the user. Your mission is to help the user gain clarity and find their own solutions by asking powerful, open-ended questions.
+// CRITICAL: Core AI Persona with Structured Coaching Rules and Goal Memory
+const GOALIFY_CORE_PROMPT = `You are Goalify, an AI Coach with perfect memory of all user goals. Your primary role is to be a supportive, non-directive thinking partner. You do not give advice, share opinions, or solve problems for the user. Your mission is to help the user gain clarity and find their own solutions by asking powerful, open-ended questions.
 
 YOUR CORE COACHING PRINCIPLES:
 
@@ -60,13 +62,22 @@ YOUR CORE COACHING PRINCIPLES:
 
 4. LISTEN FOR POTENTIAL: Your goal is to help the user identify opportunities for action and growth within their own words.
 
+5. REMEMBER EVERYTHING: You have perfect memory of all user goals, both active and completed. Reference their progress naturally in conversations.
+
 CRITICAL STRUCTURED COACHING RULES:
 - ONE QUESTION PER RESPONSE: Never ask multiple questions in a single message
 - THREE-QUESTION RULE: After exactly 3 coaching questions, you MUST propose a goal
 - Keep responses under 40 words
 - Focus on their thinking, not your knowledge
+- Reference their existing goals when relevant
 
-Remember: You're a thinking partner. They have the answers - you help them find them.`;
+GOAL MEMORY INTEGRATION:
+- If user has active goals, acknowledge them: "I see you're working on [goal]. How's that going?"
+- If user completed goals recently, celebrate: "Great job completing [goal]! What did you learn?"
+- Connect new challenges to existing goals when appropriate
+- Help them see patterns across their goal journey
+
+Remember: You're a thinking partner with perfect memory. They have the answers - you help them find them while building on their goal history.`;
 
 const PROPOSING_GOAL_PROMPT = `You are Goalify in PROPOSING_GOAL state. You have asked exactly 3 coaching questions and MUST now propose a goal.
 
@@ -75,6 +86,7 @@ CRITICAL GOAL PROPOSITION RULES:
 2. Propose ONE specific, actionable goal based on the conversation
 3. Ask for permission: "Can I suggest a challenge based on our conversation?"
 4. Wait for explicit Accept/Decline response
+5. Consider their existing goals to avoid duplication
 
 FORMATTING FOR UI INTEGRATION: 
 [GOAL] Can I suggest a challenge based on our conversation? [Specific actionable goal description]
@@ -85,6 +97,7 @@ GOAL CREATION RULES:
 - Focus on immediate next steps
 - Make them measurable and achievable
 - Break down big problems into smaller actions
+- Ensure it complements their existing goals
 
 After proposing the goal, wait for the user's Accept/Decline response.`;
 
@@ -144,11 +157,13 @@ Based on the provided data, write a 2-3 paragraph analysis covering:
 
 Be encouraging, specific, and actionable. Focus on patterns in goal completion, conversation topics, and engagement.`;
 
-// CRITICAL: Structured demo responses following the three-question rule
+// CRITICAL: Enhanced demo responses with goal memory integration
 const getDemoResponse = (messages: any[], context?: any): { response: string; aiState: AIState; shouldShowEndChat: boolean } => {
   const userMessages = messages.filter(m => m.role === 'user');
   const userCount = userMessages.length;
   const goalCount = context?.goalCount || 0;
+  const activeGoals = context?.activeGoals || 0;
+  const completedGoals = context?.completedGoals || 0;
   const questionCount = context?.questionCount || 0;
   
   // Determine AI state based on structured coaching cycle
@@ -167,8 +182,8 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
   switch (aiState) {
     case 'COACHING_Q1':
       const q1Responses = [
-        "What's the biggest challenge you're facing right now?",
-        "What's been on your mind lately that you'd like to make progress on?",
+        activeGoals > 0 ? `I see you have ${activeGoals} active goals. What's the biggest challenge you're facing right now?` : "What's the biggest challenge you're facing right now?",
+        completedGoals > 0 ? `Great job on completing ${completedGoals} goals! What's been on your mind lately that you'd like to make progress on?` : "What's been on your mind lately that you'd like to make progress on?",
         "What's one thing you'd like to improve this week?",
         "What would make the biggest difference in your day-to-day life?",
         "What's something you've been putting off that you know you should do?"
@@ -224,7 +239,7 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
     case 'AWAITING_GOAL_RESPONSE':
       if (context?.userAcceptedGoal) {
         return {
-          response: "Perfect! What else would you like to work on?",
+          response: activeGoals > 0 ? `Perfect! That adds to your ${activeGoals} active goals. What else would you like to work on?` : "Perfect! What else would you like to work on?",
           aiState: 'COACHING_Q1',
           shouldShowEndChat: false
         };
@@ -243,21 +258,21 @@ const getDemoResponse = (messages: any[], context?: any): { response: string; ai
       
     case 'ASKING_TO_CONCLUDE':
       return {
-        response: "Great progress! We've identified several actionable steps. Is there anything else I can help you with today?",
+        response: `Great progress! We've identified several actionable steps. You now have ${activeGoals} active goals to work on. Is there anything else I can help you with today?`,
         aiState: 'AWAITING_FINAL_RESPONSE',
         shouldShowEndChat: false
       };
       
     case 'AWAITING_FINAL_RESPONSE':
       return {
-        response: "Excellent! You have clear next steps to work with. Take your time with each goal and remember you can always come back for more coaching. Good luck!",
+        response: `Excellent! You have ${activeGoals} clear next steps to work with. Take your time with each goal and remember you can always come back for more coaching. Good luck!`,
         aiState,
         shouldShowEndChat: true
       };
       
     default:
       return {
-        response: "What's on your mind today?",
+        response: activeGoals > 0 ? `I see you have ${activeGoals} active goals. What's on your mind today?` : "What's on your mind today?",
         aiState: 'COACHING_Q1',
         shouldShowEndChat: false
       };
@@ -275,7 +290,7 @@ const handleError = (error: any): string => {
   return "Connection trouble. Please try again.";
 };
 
-// CRITICAL: Enhanced AI state determination with structured coaching cycle
+// CRITICAL: Enhanced AI state determination with goal memory
 const determineAIState = (messages: any[], context?: any): AIState => {
   if (context?.aiState) return context.aiState;
   
@@ -378,7 +393,7 @@ export const generateCoachingResponse = async (prompt: CoachingPrompt): Promise<
     ];
 
     if (prompt.context) {
-      const contextMessage = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}Current AI State: ${aiState}. Goals Created: ${prompt.context.goalCount || 0}. Question Count: ${prompt.context.questionCount || 0}. ${
+      const contextMessage = `Context: ${prompt.context.userName ? `User: ${prompt.context.userName}. ` : ''}Current AI State: ${aiState}. Total Goals: ${prompt.context.goalCount || 0}. Active Goals: ${prompt.context.activeGoals || 0}. Completed Goals: ${prompt.context.completedGoals || 0}. Question Count: ${prompt.context.questionCount || 0}. ${
         prompt.context.userAcceptedGoal ? 'User accepted the goal. ' : ''
       }${prompt.context.userDeclinedGoal ? 'User declined the goal. ' : ''}`;
       messages.splice(1, 0, { role: 'system', content: contextMessage });

@@ -3,6 +3,7 @@ import { MessageCircle, Plus, Calendar, Clock, ArrowRight, Sparkles, Target, Mic
 import { getUserConversations } from '../services/database';
 import { UserProfile } from '../types/coaching';
 import { useAuth } from '../hooks/useAuth';
+import { useGoals } from '../hooks/useGoals';
 
 interface Conversation {
   id: string;
@@ -24,6 +25,7 @@ export const StartPage: React.FC<StartPageProps> = ({
   onSelectConversation
 }) => {
   const { user } = useAuth();
+  const { goals, getGoalStats } = useGoals();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -73,6 +75,7 @@ export const StartPage: React.FC<StartPageProps> = ({
   };
 
   const recentConversations = getRecentConversations();
+  const goalStats = getGoalStats();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 flex items-center justify-center p-4">
@@ -97,6 +100,7 @@ export const StartPage: React.FC<StartPageProps> = ({
             </h1>
             <p className="text-purple-300 text-lg max-w-2xl mx-auto">
               Your AI coaching companion for meaningful conversations and personal growth. 
+              {goalStats.total > 0 ? ` You have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ' '}
               Ready to continue your journey or start something new?
             </p>
           </div>
@@ -107,16 +111,53 @@ export const StartPage: React.FC<StartPageProps> = ({
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-4 py-2 rounded-full border border-purple-500/30">
                 <Target className="w-4 h-4 text-purple-400" />
                 <span className="text-purple-300">Level {userProfile.level || 1}</span>
+                <span className="text-purple-200 text-xs">({userProfile.totalXP || 0} XP)</span>
               </div>
               <div className="flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-4 py-2 rounded-full border border-orange-500/30">
                 <span className="text-orange-300">{userProfile.dailyStreak || 0} day streak</span>
               </div>
               <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-500/20 to-purple-500/20 px-4 py-2 rounded-full border border-blue-500/30">
-                <span className="text-blue-300">{conversations.length} conversations</span>
+                <span className="text-blue-300">{goalStats.completed}/{goalStats.total} goals completed</span>
               </div>
             </div>
           )}
         </div>
+
+        {/* Goal Progress Summary */}
+        {goalStats.total > 0 && (
+          <div className="bg-gradient-to-r from-slate-800/50 to-purple-800/30 rounded-xl p-6 border border-purple-500/20 backdrop-blur-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Your Goal Progress</h3>
+              <span className="text-purple-300 text-sm">{goalStats.completionRate}% completion rate</span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-yellow-400 mb-1">{goalStats.pending}</div>
+                <div className="text-sm text-yellow-300">Active Goals</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-400 mb-1">{goalStats.completed}</div>
+                <div className="text-sm text-green-300">Completed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-400 mb-1">{goalStats.totalXPEarned}</div>
+                <div className="text-sm text-purple-300">XP Earned</div>
+              </div>
+            </div>
+            
+            {goalStats.total > 0 && (
+              <div className="mt-4">
+                <div className="w-full bg-slate-700 rounded-full h-3">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all duration-500"
+                    style={{ width: `${goalStats.completionRate}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Main Action Section */}
         <div className="space-y-8">
@@ -244,7 +285,7 @@ export const StartPage: React.FC<StartPageProps> = ({
               <span className="text-white font-semibold">Goal-Focused Guidance</span>
             </div>
             <p className="text-purple-300 text-sm">
-              Together we'll explore your goals, current reality, options, and create actionable next steps.
+              Together we'll explore your goals, current reality, options, and create actionable next steps that you can track and complete.
             </p>
           </div>
         </div>
