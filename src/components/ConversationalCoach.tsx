@@ -128,10 +128,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       // If loading a completed conversation, add a welcome back message
       if (isCompleted && conversationMessages.length > 0) {
+        const goalStats = getGoalStats();
         const welcomeBackMessage: Message = {
           id: `welcome_${Date.now()}`,
           role: 'assistant',
-          content: "Welcome back! I can see we had a great conversation here. What new challenge would you like to work on today?",
+          content: `Welcome back! I can see we had a great conversation here. ${goalStats.total > 0 ? `You currently have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What new challenge would you like to work on today?`,
           timestamp: new Date()
         };
         
@@ -225,8 +226,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
     const goalStats = getGoalStats();
     const greeting = userProfile?.name 
-      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals. ` : ''}What challenge or goal would you like to work on today?`
-      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals. ` : ''}What challenge or goal would you like to work on today?`;
+      ? `Hi ${userProfile.name}! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What challenge or goal would you like to work on today?`
+      : `Hi! I'm your AI Coach. ${!isOpenAIConfigured ? '(Demo mode - limited AI features) ' : ''}${goalStats.total > 0 ? `I can see you have ${goalStats.pending} active goals and ${goalStats.completed} completed. ` : ''}What challenge or goal would you like to work on today?`;
     
     const assistantMessage: Message = {
       id: uuidv4(),
@@ -471,10 +472,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     
     if (continueConversation) {
       // Continue with new coaching cycle
+      const goalStats = getGoalStats();
       const continueMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: "Great! What else would you like to work on?",
+        content: `Great! You now have ${goalStats.pending} active goals to work on. What else would you like to explore?`,
         timestamp: new Date()
       };
       

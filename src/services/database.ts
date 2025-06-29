@@ -772,32 +772,34 @@ export const getSession = async (userId: string, sessionId: string): Promise<Coa
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
   const client = checkSupabase();
   
+  // CRITICAL: Always save to local storage first for immediate availability
+  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+  const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
+  
+  const goalToStore = {
+    ...goal,
+    sessionId,
+    createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
+    completedAt: goal.completedAt?.toISOString() || null,
+    deadline: goal.deadline?.toISOString() || null
+  };
+  
+  if (goalIndex >= 0) {
+    localGoals[goalIndex] = goalToStore;
+  } else {
+    localGoals.push(goalToStore);
+  }
+  
+  localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
+  console.log('✅ Goal saved to local storage immediately:', goal.description);
+  
   if (!client) {
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
-    
-    const goalToStore = {
-      ...goal,
-      sessionId,
-      createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
-      completedAt: goal.completedAt?.toISOString() || null,
-      deadline: goal.deadline?.toISOString() || null
-    };
-    
-    if (goalIndex >= 0) {
-      localGoals[goalIndex] = goalToStore;
-    } else {
-      localGoals.push(goalToStore);
-    }
-    
-    localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
-    console.log('Goal saved to local storage');
+    console.log('⚠️ Supabase not available, goal saved to local storage only');
     return;
   }
 
   try {
-    console.log('Saving goal:', goal.id, 'for user:', userId);
+    console.log('💾 Saving goal to database:', goal.id, 'for user:', userId);
     
     const goalData = {
       id: goal.id,
@@ -819,70 +821,35 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
       .upsert(goalData);
 
     if (error) {
-      handleSupabaseError(error, 'saveGoal');
-      throw error;
+      console.error('❌ Database save failed, but goal is preserved in local storage:', error);
+      // Don't throw error - goal is already saved locally
+      return;
     }
 
-    console.log('Goal saved successfully to database');
-    
-    // Also save to local storage for caching
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
-    
-    const goalToStore = {
-      ...goal,
-      sessionId,
-      createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
-      completedAt: goal.completedAt?.toISOString() || null,
-      deadline: goal.deadline?.toISOString() || null
-    };
-    
-    if (goalIndex >= 0) {
-      localGoals[goalIndex] = goalToStore;
-    } else {
-      localGoals.push(goalToStore);
-    }
-    
-    localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
+    console.log('✅ Goal saved successfully to database');
   } catch (error) {
-    console.error('Error in saveGoal:', error);
-    // CRITICAL: Fallback to local storage for demo mode and offline functionality
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
-    
-    const goalToStore = {
-      ...goal,
-      sessionId,
-      createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
-      completedAt: goal.completedAt?.toISOString() || null,
-      deadline: goal.deadline?.toISOString() || null
-    };
-    
-    if (goalIndex >= 0) {
-      localGoals[goalIndex] = goalToStore;
-    } else {
-      localGoals.push(goalToStore);
-    }
-    
-    localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
-    console.log('Goal saved to local storage as fallback');
+    console.error('❌ Error saving goal to database, but preserved in local storage:', error);
+    // Don't throw error - goal is already saved locally
   }
 };
 
 export const getSessionGoals = async (userId: string, sessionId: string): Promise<Goal[]> => {
   const client = checkSupabase();
   
+  // CRITICAL: Always check local storage first for immediate availability
+  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+  const sessionGoalsFromLocal = localGoals
+    .filter((goal: any) => goal.sessionId === sessionId)
+    .map((goal: any) => ({
+      ...goal,
+      createdAt: new Date(goal.createdAt),
+      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+      deadline: goal.deadline ? new Date(goal.deadline) : undefined
+    }));
+
   if (!client) {
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals
-      .filter((goal: any) => goal.sessionId === sessionId)
-      .map((goal: any) => ({
-        ...goal,
-        createdAt: new Date(goal.createdAt),
-        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-        deadline: goal.deadline ? new Date(goal.deadline) : undefined
-      }));
+    console.log('⚠️ Supabase not available, returning goals from local storage:', sessionGoalsFromLocal.length);
+    return sessionGoalsFromLocal;
   }
 
   try {
@@ -894,11 +861,11 @@ export const getSessionGoals = async (userId: string, sessionId: string): Promis
       .order('created_at', { ascending: false });
 
     if (error) {
-      handleSupabaseError(error, 'getSessionGoals');
-      return [];
+      console.error('❌ Database fetch failed, using local storage:', error);
+      return sessionGoalsFromLocal;
     }
 
-    const goals = (data || []).map(goal => ({
+    const goalsFromDB = (data || []).map(goal => ({
       id: goal.id,
       description: goal.description,
       xpValue: goal.xp_value || 50,
@@ -911,48 +878,55 @@ export const getSessionGoals = async (userId: string, sessionId: string): Promis
       createdAt: new Date(goal.created_at),
     }));
 
-    // Cache in local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    const sessionGoalsToStore = goals.map(goal => ({
+    // Merge with local storage and update cache
+    const mergedGoals = [...goalsFromDB];
+    
+    // Add any local goals not in database
+    localGoals.forEach((localGoal: any) => {
+      if (localGoal.sessionId === sessionId && !mergedGoals.find(g => g.id === localGoal.id)) {
+        mergedGoals.push({
+          ...localGoal,
+          createdAt: new Date(localGoal.createdAt),
+          completedAt: localGoal.completedAt ? new Date(localGoal.completedAt) : undefined,
+          deadline: localGoal.deadline ? new Date(localGoal.deadline) : undefined
+        });
+      }
+    });
+
+    // Update local storage with merged data
+    const allLocalGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+    const otherGoals = allLocalGoals.filter((g: any) => g.sessionId !== sessionId);
+    const sessionGoalsToStore = mergedGoals.map(goal => ({
       ...goal,
       sessionId,
       createdAt: goal.createdAt.toISOString(),
       completedAt: goal.completedAt?.toISOString() || null,
       deadline: goal.deadline?.toISOString() || null
     }));
-
-    // Update local storage with session goals
-    const otherGoals = localGoals.filter((g: any) => g.sessionId !== sessionId);
     localStorage.setItem(`goals_${userId}`, JSON.stringify([...otherGoals, ...sessionGoalsToStore]));
 
-    return goals;
+    return mergedGoals;
   } catch (error) {
-    console.error('Error in getSessionGoals:', error);
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals
-      .filter((goal: any) => goal.sessionId === sessionId)
-      .map((goal: any) => ({
-        ...goal,
-        createdAt: new Date(goal.createdAt),
-        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-        deadline: goal.deadline ? new Date(goal.deadline) : undefined
-      }));
+    console.error('❌ Error fetching session goals from database, using local storage:', error);
+    return sessionGoalsFromLocal;
   }
 };
 
 export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   const client = checkSupabase();
   
+  // CRITICAL: Always check local storage first for immediate availability
+  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+  const goalsFromLocal = localGoals.map((goal: any) => ({
+    ...goal,
+    createdAt: new Date(goal.createdAt),
+    completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
+    deadline: goal.deadline ? new Date(goal.deadline) : undefined
+  }));
+
   if (!client) {
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals.map((goal: any) => ({
-      ...goal,
-      createdAt: new Date(goal.createdAt),
-      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined
-    }));
+    console.log('⚠️ Supabase not available, returning goals from local storage:', goalsFromLocal.length);
+    return goalsFromLocal;
   }
 
   try {
@@ -963,11 +937,11 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      handleSupabaseError(error, 'getUserGoals');
-      return [];
+      console.error('❌ Database fetch failed, using local storage:', error);
+      return goalsFromLocal;
     }
 
-    const goals = (data || []).map(goal => ({
+    const goalsFromDB = (data || []).map(goal => ({
       id: goal.id,
       description: goal.description,
       xpValue: goal.xp_value || 50,
@@ -980,120 +954,62 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       createdAt: new Date(goal.created_at),
     }));
 
-    // Cache in local storage
-    localStorage.setItem(`goals_${userId}`, JSON.stringify(goals.map(goal => ({
+    // Merge with local storage
+    const mergedGoals = [...goalsFromDB];
+    
+    // Add any local goals not in database
+    localGoals.forEach((localGoal: any) => {
+      if (!mergedGoals.find(g => g.id === localGoal.id)) {
+        mergedGoals.push({
+          ...localGoal,
+          createdAt: new Date(localGoal.createdAt),
+          completedAt: localGoal.completedAt ? new Date(localGoal.completedAt) : undefined,
+          deadline: localGoal.deadline ? new Date(localGoal.deadline) : undefined
+        });
+      }
+    });
+
+    // Update local storage cache
+    localStorage.setItem(`goals_${userId}`, JSON.stringify(mergedGoals.map(goal => ({
       ...goal,
       createdAt: goal.createdAt.toISOString(),
       completedAt: goal.completedAt?.toISOString() || null,
       deadline: goal.deadline?.toISOString() || null
     }))));
 
-    return goals;
+    console.log('✅ Goals loaded and cached:', mergedGoals.length);
+    return mergedGoals;
   } catch (error) {
-    console.error('Error in getUserGoals:', error);
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals.map((goal: any) => ({
-      ...goal,
-      createdAt: new Date(goal.createdAt),
-      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined
-    }));
+    console.error('❌ Error fetching user goals from database, using local storage:', error);
+    return goalsFromLocal;
   }
 };
 
 // CRITICAL: New function to get all user goals across all sessions with memory persistence
 export const getAllUserGoals = async (userId: string): Promise<Goal[]> => {
-  const client = checkSupabase();
-  
-  if (!client) {
-    console.log('⚠️ Supabase not configured - using local storage for goals');
-    // Fallback to local storage
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    return localGoals.map((goal: any) => ({
-      ...goal,
-      createdAt: new Date(goal.createdAt),
-      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined
-    }));
-  }
-
-  try {
-    console.log('Fetching all goals for user:', userId);
-    
-    const { data, error } = await client
-      .from('goals')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Database error in getAllUserGoals:', error);
-      // Don't throw error, fall back to local storage
-      const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-      console.log('Using local storage fallback, found', localGoals.length, 'goals');
-      return localGoals.map((goal: any) => ({
-        ...goal,
-        createdAt: new Date(goal.createdAt),
-        completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-        deadline: goal.deadline ? new Date(goal.deadline) : undefined
-      }));
-    }
-
-    console.log('Fetched all goals from database:', data?.length || 0);
-
-    const goals = (data || []).map(goal => ({
-      id: goal.id,
-      description: goal.description,
-      xpValue: goal.xp_value || 50,
-      difficulty: goal.difficulty || 'medium',
-      motivation: goal.motivation || 5,
-      completed: goal.completed || false,
-      completedAt: goal.completed_at ? new Date(goal.completed_at) : undefined,
-      completionReasoning: goal.completion_reasoning || undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined,
-      createdAt: new Date(goal.created_at),
-    }));
-
-    // CRITICAL: Store in local storage for offline access and memory persistence
-    localStorage.setItem(`goals_${userId}`, JSON.stringify(goals.map(goal => ({
-      ...goal,
-      createdAt: goal.createdAt.toISOString(),
-      completedAt: goal.completedAt?.toISOString() || null,
-      deadline: goal.deadline?.toISOString() || null
-    }))));
-
-    return goals;
-  } catch (error) {
-    console.error('Network error in getAllUserGoals:', error);
-    // CRITICAL: Fallback to local storage for offline functionality
-    const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-    console.log('Using local storage fallback due to network error, found', localGoals.length, 'goals');
-    return localGoals.map((goal: any) => ({
-      ...goal,
-      createdAt: new Date(goal.createdAt),
-      completedAt: goal.completedAt ? new Date(goal.completedAt) : undefined,
-      deadline: goal.deadline ? new Date(goal.deadline) : undefined
-    }));
-  }
+  return getUserGoals(userId); // Same implementation for now
 };
 
-// Daily Streak Operations
+// CRITICAL: Enhanced Daily Streak Operations with proper date handling
 export const updateDailyStreak = async (userId: string): Promise<number> => {
   try {
     const profile = await getUserProfile(userId);
     if (!profile) return 0;
 
     const today = new Date();
-    const lastActivity = profile.lastActivity;
+    today.setHours(0, 0, 0, 0); // Reset to start of day for accurate comparison
     
+    const lastActivity = profile.lastActivity;
     let newStreak = profile.dailyStreak || 0;
     
     if (!lastActivity) {
       // First activity ever
       newStreak = 1;
     } else {
-      const daysDiff = Math.floor((today.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+      const lastActivityDate = new Date(lastActivity);
+      lastActivityDate.setHours(0, 0, 0, 0); // Reset to start of day
+      
+      const daysDiff = Math.floor((today.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (daysDiff === 0) {
         // Same day, keep streak
@@ -1101,7 +1017,7 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
       } else if (daysDiff === 1) {
         // Next day, increment streak
         newStreak = (profile.dailyStreak || 0) + 1;
-      } else {
+      } else if (daysDiff > 1) {
         // Missed days, reset streak
         newStreak = 1;
       }
@@ -1110,12 +1026,13 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
     await updateUserProfile(userId, {
       ...profile,
       dailyStreak: newStreak,
-      lastActivity: today,
+      lastActivity: new Date(),
     });
 
+    console.log('✅ Daily streak updated:', newStreak);
     return newStreak;
   } catch (error) {
-    console.error('Error in updateDailyStreak:', error);
+    console.error('❌ Error updating daily streak:', error);
     return 0;
   }
 };

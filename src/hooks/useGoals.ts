@@ -32,6 +32,7 @@ export const useGoals = () => {
           total: userGoals.length,
           completed: userGoals.filter(g => g.completed).length,
           pending: userGoals.filter(g => !g.completed).length,
+          overdue: userGoals.filter(g => !g.completed && g.deadline && g.deadline < new Date()).length,
           recent: userGoals.slice(0, 3).map(g => ({ 
             id: g.id.substring(0, 8), 
             description: g.description.substring(0, 30) + '...', 
@@ -50,11 +51,16 @@ export const useGoals = () => {
     if (!user) return;
 
     try {
-      await saveGoal(user.id, sessionId, goal);
+      // CRITICAL: Add to local state immediately for instant UI update
       setGoals(prev => [goal, ...prev]);
-      console.log('✅ Goal added to global state:', goal.description);
+      console.log('✅ Goal added to local state immediately:', goal.description);
+      
+      // Save to database/storage in background
+      await saveGoal(user.id, sessionId, goal);
+      console.log('✅ Goal persisted to storage:', goal.description);
     } catch (error) {
       console.error('❌ Error adding goal:', error);
+      // Goal is still in local state even if save failed
     }
   };
 
@@ -72,23 +78,22 @@ export const useGoals = () => {
         completionReasoning: reasoning
       };
 
-      // Update goal in database
-      await saveGoal(user.id, '', completedGoal);
+      // CRITICAL: Update local state immediately
+      setGoals(prev => prev.map(g => 
+        g.id === goalId ? completedGoal : g
+      ));
 
       // Update user profile with XP
       const newXP = (userProfile?.totalXP || 0) + xpGained;
       const newLevel = Math.floor(newXP / 1000) + 1;
 
+      // Save to database/storage
+      await saveGoal(user.id, '', completedGoal);
       await updateUserProfile(user.id, {
         ...userProfile,
         totalXP: newXP,
         level: newLevel
       });
-
-      // Update local state
-      setGoals(prev => prev.map(g => 
-        g.id === goalId ? completedGoal : g
-      ));
 
       console.log('✅ Goal completed with XP reward:', xpGained);
       return { newXP, newLevel };
