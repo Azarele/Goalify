@@ -53,12 +53,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
-  const [showEndChatButton, setShowEndChatButton] = useState(false);
-  
-  // Idle detection state
-  const [lastActivityTime, setLastActivityTime] = useState<Date>(new Date());
-  const [showIdlePrompt, setShowIdlePrompt] = useState(false);
-  const idleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -106,36 +100,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   }, [goals, user, hasStartedSession]);
 
-  // CRITICAL: Idle detection with 5-minute timeout
-  useEffect(() => {
-    const resetIdleTimer = () => {
-      setLastActivityTime(new Date());
-      setShowIdlePrompt(false);
-      
-      if (idleTimeoutRef.current) {
-        clearTimeout(idleTimeoutRef.current);
-      }
-      
-      // Only set idle timer if conversation is active and not completed
-      if (hasStartedSession && !isConversationCompleted && activeConversationMessages.length > 0) {
-        idleTimeoutRef.current = setTimeout(() => {
-          setShowIdlePrompt(true);
-          setShowEndChatButton(true);
-        }, 5 * 60 * 1000); // 5 minutes
-      }
-    };
-
-    // Reset timer on any activity
-    resetIdleTimer();
-
-    // Cleanup on unmount
-    return () => {
-      if (idleTimeoutRef.current) {
-        clearTimeout(idleTimeoutRef.current);
-      }
-    };
-  }, [hasStartedSession, isConversationCompleted, activeConversationMessages.length, inputText, isLoading]);
-
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
     try {
@@ -156,7 +120,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         (lastMessage.content.includes('Perfect! You\'re all set') || 
          lastMessage.content.includes('Good luck!'));
       setIsConversationCompleted(isCompleted);
-      setShowEndChatButton(isCompleted);
 
       // If loading a completed conversation, add a welcome back message
       if (isCompleted && conversationMessages.length > 0) {
@@ -170,7 +133,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         setActiveConversationMessages([...conversationMessages, welcomeBackMessage]);
         setCurrentlyTyping(welcomeBackMessage.id);
         setIsConversationCompleted(false);
-        setShowEndChatButton(false);
         setAiState('COACHING_Q1');
         
         await saveMessage(conversationId, welcomeBackMessage);
@@ -286,8 +248,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setQuestionCount(0);
       setPendingGoal(null);
       setIsConversationCompleted(false);
-      setShowEndChatButton(false);
-      setShowIdlePrompt(false);
       setAiState('COACHING_Q1');
       setInputText('');
       resetTranscript();
@@ -471,7 +431,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
       // Handle End Chat button visibility
       if (aiResponse.shouldShowEndChat) {
-        setShowEndChatButton(true);
         setIsConversationCompleted(true);
         await updateConversation(currentConversationId, { completed: true });
       }
@@ -492,7 +451,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     if (!content.trim() || isLoading || !user || !currentConversationId) return;
 
     setIsLoading(true);
-    setShowIdlePrompt(false); // Hide idle prompt when user is active
     
     const userMessage: Message = {
       id: uuidv4(),
@@ -574,7 +532,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       
       // Handle End Chat button visibility
       if (aiResponse.shouldShowEndChat) {
-        setShowEndChatButton(true);
         setIsConversationCompleted(true);
         await updateConversation(currentConversationId, { completed: true });
       }
@@ -626,15 +583,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setQuestionCount(0);
     setPendingGoal(null);
     setIsConversationCompleted(false);
-    setShowEndChatButton(false);
-    setShowIdlePrompt(false);
     setInputText('');
     resetTranscript();
-    
-    // Clear idle timer
-    if (idleTimeoutRef.current) {
-      clearTimeout(idleTimeoutRef.current);
-    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -739,23 +689,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             )}
             
             <div className="flex items-center space-x-1">
-              {/* CRITICAL: Enhanced End Chat Button - Shows after goals OR idle timeout */}
-              {(showEndChatButton && (goalCount >= 2 || showIdlePrompt)) && (
-                <button
-                  onClick={handleEndChat}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-full border font-medium transition-all duration-300 animate-fade-in ${
-                    showIdlePrompt 
-                      ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 text-yellow-300 border-yellow-500/30 hover:bg-yellow-500/30'
-                      : 'bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30'
-                  }`}
-                  title={showIdlePrompt ? "Session idle - end chat?" : "End conversation"}
-                >
-                  <X className="w-4 h-4" />
-                  <span className="text-sm">
-                    {showIdlePrompt ? 'End Idle Chat' : 'End Chat'}
-                  </span>
-                </button>
-              )}
+              {/* CRITICAL: Always visible End Chat Button in red */}
+              <button
+                onClick={handleEndChat}
+                className="flex items-center space-x-2 px-4 py-2 rounded-full border font-medium transition-all duration-300 bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-300 border-red-500/30 hover:bg-red-500/30"
+                title="End current conversation"
+              >
+                <X className="w-4 h-4" />
+                <span className="text-sm">End Chat</span>
+              </button>
 
               {isElevenLabsConfigured && (
                 <button
@@ -790,26 +732,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               <p className="text-yellow-300 text-xs text-center">
                 Demo mode: Limited AI features. Configure OpenAI API key for full functionality.
               </p>
-            </div>
-          )}
-
-          {/* CRITICAL: Idle Prompt Banner */}
-          {showIdlePrompt && (
-            <div className="mt-3 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20 rounded-lg p-3 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-yellow-400" />
-                  <span className="text-yellow-300 text-sm font-medium">
-                    You've been idle for 5 minutes. Would you like to end this conversation?
-                  </span>
-                </div>
-                <button
-                  onClick={() => setShowIdlePrompt(false)}
-                  className="text-yellow-400 hover:text-yellow-300 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
             </div>
           )}
         </div>

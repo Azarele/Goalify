@@ -506,7 +506,10 @@ export const createConversation = async (userId: string, firstMessage: string): 
       title,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      completed: false
+      completed: false,
+      ai_label: null,
+      category: 'general',
+      soft_deleted: false
     });
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
     return conversationId;
@@ -518,6 +521,7 @@ export const createConversation = async (userId: string, firstMessage: string): 
       .insert({
         user_id: userId,
         title,
+        category: 'general'
       })
       .select('id')
       .single();
@@ -539,7 +543,10 @@ export const createConversation = async (userId: string, firstMessage: string): 
       title: generateConversationTitle(firstMessage),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      completed: false
+      completed: false,
+      ai_label: null,
+      category: 'general',
+      soft_deleted: false
     });
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
     return conversationId;
@@ -552,6 +559,8 @@ export const getUserConversations = async (userId: string): Promise<Array<{
   created_at: Date;
   updated_at: Date;
   completed: boolean;
+  aiLabel?: string;
+  category?: string;
 }>> => {
   const client = checkSupabase();
   
@@ -561,7 +570,9 @@ export const getUserConversations = async (userId: string): Promise<Array<{
     return localConversations.map((conv: any) => ({
       ...conv,
       created_at: new Date(conv.created_at),
-      updated_at: new Date(conv.updated_at)
+      updated_at: new Date(conv.updated_at),
+      aiLabel: conv.ai_label,
+      category: conv.category || 'general'
     }));
   }
 
@@ -570,8 +581,9 @@ export const getUserConversations = async (userId: string): Promise<Array<{
     
     const { data, error } = await client
       .from('conversations')
-      .select('id, title, created_at, updated_at, completed')
+      .select('id, title, created_at, updated_at, completed, ai_label, category')
       .eq('user_id', userId)
+      .eq('soft_deleted', false) // Only get non-deleted conversations
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -587,13 +599,18 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       created_at: new Date(conv.created_at),
       updated_at: new Date(conv.updated_at),
       completed: conv.completed || false,
+      aiLabel: conv.ai_label,
+      category: conv.category || 'general'
     }));
 
     // Cache in local storage
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(conversations.map(conv => ({
       ...conv,
       created_at: conv.created_at.toISOString(),
-      updated_at: conv.updated_at.toISOString()
+      updated_at: conv.updated_at.toISOString(),
+      ai_label: conv.aiLabel,
+      category: conv.category,
+      soft_deleted: false
     }))));
 
     return conversations;
@@ -604,7 +621,9 @@ export const getUserConversations = async (userId: string): Promise<Array<{
     return localConversations.map((conv: any) => ({
       ...conv,
       created_at: new Date(conv.created_at),
-      updated_at: new Date(conv.updated_at)
+      updated_at: new Date(conv.updated_at),
+      aiLabel: conv.ai_label,
+      category: conv.category || 'general'
     }));
   }
 };
@@ -727,6 +746,8 @@ export const saveMessage = async (conversationId: string, message: Message): Pro
 export const updateConversation = async (conversationId: string, updates: {
   completed?: boolean;
   title?: string;
+  aiLabel?: string;
+  category?: string;
 }): Promise<void> => {
   const client = checkSupabase();
   
@@ -735,7 +756,12 @@ export const updateConversation = async (conversationId: string, updates: {
     const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
     const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
     const updatedConversations = localConversations.map((conv: any) => 
-      conv.id === conversationId ? { ...conv, ...updates, updated_at: new Date().toISOString() } : conv
+      conv.id === conversationId ? { 
+        ...conv, 
+        ...updates, 
+        ai_label: updates.aiLabel,
+        updated_at: new Date().toISOString() 
+      } : conv
     );
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
     console.log('Conversation updated in local storage');
@@ -749,6 +775,8 @@ export const updateConversation = async (conversationId: string, updates: {
 
     if (updates.completed !== undefined) updateData.completed = updates.completed;
     if (updates.title !== undefined) updateData.title = updates.title;
+    if (updates.aiLabel !== undefined) updateData.ai_label = updates.aiLabel;
+    if (updates.category !== undefined) updateData.category = updates.category;
 
     const { error } = await client
       .from('conversations')
@@ -767,10 +795,51 @@ export const updateConversation = async (conversationId: string, updates: {
     const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
     const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
     const updatedConversations = localConversations.map((conv: any) => 
-      conv.id === conversationId ? { ...conv, ...updates, updated_at: new Date().toISOString() } : conv
+      conv.id === conversationId ? { 
+        ...conv, 
+        ...updates, 
+        ai_label: updates.aiLabel,
+        updated_at: new Date().toISOString() 
+      } : conv
     );
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
     console.log('Conversation updated in local storage as fallback');
+  }
+};
+
+// Soft delete conversation
+export const deleteConversation = async (conversationId: string): Promise<void> => {
+  const client = checkSupabase();
+  
+  if (!client) {
+    // Fallback to local storage - remove from array
+    const userId = conversationId.split('_')[0];
+    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+    const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
+    console.log('Conversation deleted from local storage');
+    return;
+  }
+
+  try {
+    const { error } = await client.rpc('soft_delete_conversation', {
+      conversation_id: conversationId
+    });
+
+    if (error) {
+      handleSupabaseError(error, 'deleteConversation');
+      throw error;
+    }
+
+    console.log('Conversation soft deleted successfully');
+  } catch (error) {
+    console.error('Error in deleteConversation:', error);
+    // Fallback to local storage
+    const userId = conversationId.split('_')[0];
+    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+    const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
+    console.log('Conversation deleted from local storage as fallback');
   }
 };
 
