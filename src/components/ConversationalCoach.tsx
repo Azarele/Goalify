@@ -58,7 +58,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [voiceProgress, setVoiceProgress] = useState(0);
   const [typingProgress, setTypingProgress] = useState(0);
   const [isVoiceSynced, setIsVoiceSynced] = useState(false);
-  const [voiceStartTime, setVoiceStartTime] = useState<number | null>(null);
+  const [shouldStartTyping, setShouldStartTyping] = useState(false);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -301,7 +301,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setIsVoiceSynced(true);
       setVoiceProgress(0);
       setTypingProgress(0);
-      setVoiceStartTime(Date.now());
+      setShouldStartTyping(false);
       
       // Determine emotion from content
       const emotion = determineEmotion(text);
@@ -309,6 +309,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const audioBuffer = await generateSpeech(text, {
         voiceId: userProfile.preferences.voiceId
       }, emotion);
+      
+      // ENHANCED: Start typing only when voice begins
+      setTimeout(() => {
+        setShouldStartTyping(true);
+      }, 200); // Small delay to ensure voice starts first
       
       // ENHANCED: Play audio with perfect progress tracking for synchronization
       await playAudioSynchronized(audioBuffer, text.length, (progress) => {
@@ -325,6 +330,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             setIsVoiceSynced(false);
             setVoiceProgress(0);
             setTypingProgress(0);
+            setShouldStartTyping(false);
           }
         }, 100);
       });
@@ -336,7 +342,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setIsVoiceSynced(false);
       setVoiceProgress(0);
       setTypingProgress(0);
-      setVoiceStartTime(null);
+      setShouldStartTyping(false);
       
       if (voiceTimeoutRef.current) {
         clearTimeout(voiceTimeoutRef.current);
@@ -714,70 +720,66 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userProfile={userProfile}
       />
 
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto relative">
-        <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-b border-purple-500/20 p-4 relative overflow-hidden">
+      <div className="flex-1 flex flex-col max-w-4xl mx-auto relative min-h-0">
+        {/* ENHANCED: Mobile-optimized header */}
+        <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-b border-purple-500/20 p-3 sm:p-4 relative overflow-hidden flex-shrink-0">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 animate-pulse"></div>
           
           <div className="relative flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
               {/* ENHANCED: Show sidebar toggles on all screen sizes */}
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
                 <button
                   onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-                  className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                  className="p-1.5 sm:p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
                   title="Toggle conversation history"
                 >
-                  <Clock className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                  <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 group-hover:text-white" />
                 </button>
               </div>
               
-              <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-                  <MessageCircle className="w-6 h-6 text-white" />
+              <div className="relative flex-shrink-0">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
+                  <MessageCircle className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
               </div>
               
-              <div>
-                <h2 className="text-lg font-semibold text-white">AI Coach</h2>
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
-                  <p className="text-sm text-purple-200">
-                    {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {goalCount} goals
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm sm:text-lg font-semibold text-white truncate">AI Coach</h2>
+                <div className="flex items-center space-x-1 sm:space-x-2">
+                  <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
+                  <p className="text-xs sm:text-sm text-purple-200 truncate">
+                    <span className="hidden sm:inline">{stageInfo.icon} {stageInfo.label} • </span>
+                    Q{questionCount}/3 • {goalCount} goals
                   </p>
                 </div>
               </div>
             </div>
 
-            {userProfile && (
-              <div className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
-                <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
-                <span className="text-orange-200 text-xs">day streak</span>
-              </div>
-            )}
-            
-            <div className="flex items-center space-x-1">
+            {/* ENHANCED: Mobile-optimized controls */}
+            <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
               {/* CRITICAL: Always visible End Chat Button in red */}
               <button
                 onClick={handleEndChat}
-                className="flex items-center space-x-2 px-4 py-2 rounded-full border font-medium transition-all duration-300 bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-300 border-red-500/30 hover:bg-red-500/30"
+                className="flex items-center space-x-1 sm:space-x-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full border font-medium transition-all duration-300 bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-300 border-red-500/30 hover:bg-red-500/30 text-xs sm:text-sm"
                 title="End current conversation"
               >
-                <X className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">End Chat</span>
+                <X className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">End Chat</span>
               </button>
 
               {isElevenLabsConfigured && (
                 <button
                   onClick={toggleVoice}
-                  className={`p-3 rounded-full transition-all duration-300 transform hover:scale-105 ${
+                  className={`p-2 sm:p-3 rounded-full transition-all duration-300 transform hover:scale-105 ${
                     voiceEnabled 
                       ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25' 
                       : 'bg-slate-700 text-purple-300 hover:bg-slate-600'
                   }`}
                   title={voiceEnabled ? 'Voice enabled' : 'Voice disabled'}
                 >
-                  {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                  {voiceEnabled ? <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </button>
               )}
               
@@ -785,24 +787,17 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
               <div>
                 <button
                   onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-                  className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                  className="p-1.5 sm:p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
                   title="Toggle goal tracking"
                 >
-                  <Target className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                  <Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 group-hover:text-white" />
                 </button>
               </div>
-              
-              {/* ENHANCED: Mobile-friendly voice indicator */}
-              {isPlayingAudio && (
-                <div className="hidden sm:block">
-                  <VoiceIndicator />
-                </div>
-              )}
             </div>
           </div>
 
           {!isOpenAIConfigured && (
-            <div className="mt-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2">
+            <div className="mt-2 sm:mt-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2">
               <p className="text-yellow-300 text-xs text-center">
                 Demo mode: Limited AI features. Configure OpenAI API key for full functionality.
               </p>
@@ -810,9 +805,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           )}
         </div>
 
+        {/* ENHANCED: Mobile-optimized chat area */}
         <div 
           ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll"
+          className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll min-h-0"
         >
           {activeConversationMessages.map((message, index) => (
             <div key={message.id}>
@@ -821,7 +817,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 style={{ animationDelay: `${index * 100}ms` }}
               >
                 <div
-                  className={`max-w-xs lg:max-w-md px-6 py-4 rounded-2xl shadow-xl transition-all duration-300 hover:shadow-2xl ${
+                  className={`max-w-[85%] sm:max-w-xs lg:max-w-md px-4 sm:px-6 py-3 sm:py-4 rounded-2xl shadow-xl transition-all duration-300 hover:shadow-2xl ${
                     message.role === 'user'
                       ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-purple-700 text-white transform hover:scale-105 shadow-purple-500/25'
                       : 'bg-gradient-to-br from-slate-800 to-slate-700 text-white border border-purple-500/20 shadow-purple-500/10'
@@ -833,6 +829,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                       speed={25}
                       enableVoiceSync={isVoiceSynced}
                       onProgress={(progress) => setTypingProgress(progress)}
+                      shouldStart={shouldStartTyping}
                     />
                   ) : (
                     <p className="text-sm leading-relaxed">
@@ -841,14 +838,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                     </p>
                   )}
                   
-                  <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center justify-between mt-2 sm:mt-3">
                     <span className="text-xs opacity-70">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     {message.isVoice && (
                       <div className="flex items-center space-x-1">
                         <Mic className="w-3 h-3 opacity-70" />
-                        <span className="text-xs opacity-70">Voice</span>
+                        <span className="text-xs opacity-70 hidden sm:inline">Voice</span>
                       </div>
                     )}
                   </div>
@@ -857,22 +854,22 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
               {/* CRITICAL: Goal Accept/Decline Buttons */}
               {pendingGoal && pendingGoal.messageId === message.id && (
-                <div className="flex justify-start mt-4 animate-fade-in">
-                  <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-4 border border-blue-500/20 backdrop-blur-sm">
+                <div className="flex justify-start mt-3 sm:mt-4 animate-fade-in">
+                  <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-3 sm:p-4 border border-blue-500/20 backdrop-blur-sm max-w-[85%] sm:max-w-md">
                     <p className="text-white text-sm mb-3 font-medium">Would you like to accept this challenge?</p>
-                    <div className="flex space-x-3">
+                    <div className="flex space-x-2 sm:space-x-3">
                       <button
                         onClick={() => handleGoalResponse(true)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                        className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 text-sm"
                       >
-                        <CheckCircle className="w-4 h-4" />
+                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
                         <span>Accept</span>
                       </button>
                       <button
                         onClick={() => handleGoalResponse(false)}
-                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                        className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105 text-sm"
                       >
-                        <XCircle className="w-4 h-4" />
+                        <XCircle className="w-3 h-3 sm:w-4 sm:h-4" />
                         <span>Decline</span>
                       </button>
                     </div>
@@ -884,7 +881,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           
           {isLoading && (
             <div className="flex justify-start animate-fade-in">
-              <div className="bg-gradient-to-br from-slate-800 to-slate-700 text-white px-6 py-4 rounded-2xl shadow-xl border border-purple-500/20">
+              <div className="bg-gradient-to-br from-slate-800 to-slate-700 text-white px-4 sm:px-6 py-3 sm:py-4 rounded-2xl shadow-xl border border-purple-500/20">
                 <div className="flex items-center space-x-3">
                   <div className="flex space-x-1">
                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
@@ -900,15 +897,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-t border-purple-500/20 p-6">
-          <form onSubmit={handleSubmit} className="flex items-center space-x-4">
+        {/* ENHANCED: Mobile-optimized input area */}
+        <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-t border-purple-500/20 p-3 sm:p-6 flex-shrink-0">
+          <form onSubmit={handleSubmit} className="flex items-center space-x-2 sm:space-x-4">
             <div className="flex-1 relative">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder={isListening ? "🎤 Listening..." : "Share what's on your mind..."}
-                className={`w-full p-4 pr-14 border-2 rounded-2xl bg-slate-700/50 text-white placeholder-purple-300 focus:ring-4 focus:ring-purple-500/30 focus:border-purple-400 transition-all duration-300 backdrop-blur-sm ${
+                className={`w-full p-3 sm:p-4 pr-12 sm:pr-14 border-2 rounded-2xl bg-slate-700/50 text-white placeholder-purple-300 focus:ring-4 focus:ring-purple-500/30 focus:border-purple-400 transition-all duration-300 backdrop-blur-sm text-sm sm:text-base ${
                   isListening ? 'border-pink-400 bg-pink-500/10' : 'border-purple-500/30'
                 }`}
                 disabled={isLoading || isListening || isConversationCompleted || !!pendingGoal}
@@ -918,14 +916,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 <button
                   type="button"
                   onClick={handleVoiceInput}
-                  className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-full transition-all duration-300 ${
+                  className={`absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-full transition-all duration-300 ${
                     isListening 
                       ? 'bg-pink-500/20 text-pink-400 animate-pulse' 
                       : 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 hover:scale-110'
                   }`}
                   title={isListening ? 'Stop listening' : 'Start voice input'}
                 >
-                  {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  {isListening ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </button>
               )}
             </div>
@@ -933,43 +931,35 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             <button
               type="submit"
               disabled={!inputText.trim() || isLoading || isConversationCompleted || !!pendingGoal}
-              className={`p-4 rounded-2xl font-medium transition-all duration-300 transform ${
+              className={`p-3 sm:p-4 rounded-2xl font-medium transition-all duration-300 transform flex-shrink-0 ${
                 inputText.trim() && !isLoading && !isConversationCompleted && !pendingGoal
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-500/25 hover:shadow-xl hover:scale-105'
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
               }`}
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </form>
           
           {isListening && (
-            <div className="mt-4 text-center animate-fade-in">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-pink-500/10 text-pink-300 rounded-full border border-pink-500/20 backdrop-blur-sm">
+            <div className="mt-3 sm:mt-4 text-center animate-fade-in">
+              <div className="inline-flex items-center space-x-2 px-3 sm:px-4 py-2 bg-pink-500/10 text-pink-300 rounded-full border border-pink-500/20 backdrop-blur-sm">
                 <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium">Listening... Speak now</span>
-              </div>
-            </div>
-          )}
-
-          {pendingGoal && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-500/10 text-blue-300 rounded-full border border-blue-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Please respond to the goal above before continuing</span>
+                <span className="text-xs sm:text-sm font-medium">Listening... Speak now</span>
               </div>
             </div>
           )}
 
           {/* ENHANCED: Mobile-friendly voice synchronization indicator */}
           {isVoiceSynced && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-3 px-4 py-2 bg-purple-500/10 text-purple-300 rounded-full border border-purple-500/20 backdrop-blur-sm max-w-xs mx-auto">
-                <div className="flex items-center space-x-2">
-                  <Volume2 className="w-4 h-4 animate-pulse" />
-                  <span className="text-sm font-medium hidden sm:inline">Voice synchronized</span>
-                  <span className="text-sm font-medium sm:hidden">🎤 Speaking</span>
+            <div className="mt-3 sm:mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 sm:space-x-3 px-3 sm:px-4 py-2 bg-purple-500/10 text-purple-300 rounded-full border border-purple-500/20 backdrop-blur-sm max-w-xs mx-auto">
+                <div className="flex items-center space-x-1 sm:space-x-2">
+                  <Volume2 className="w-3 h-3 sm:w-4 sm:h-4 animate-pulse" />
+                  <span className="text-xs sm:text-sm font-medium hidden sm:inline">Voice synchronized</span>
+                  <span className="text-xs font-medium sm:hidden">🎤 Speaking</span>
                 </div>
-                <div className="w-16 h-1.5 bg-slate-600 rounded-full overflow-hidden">
+                <div className="w-12 sm:w-16 h-1 sm:h-1.5 bg-slate-600 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-100"
                     style={{ width: `${Math.max(voiceProgress, typingProgress) * 100}%` }}
@@ -979,10 +969,18 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             </div>
           )}
 
+          {pendingGoal && (
+            <div className="mt-3 sm:mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-3 sm:px-4 py-2 bg-blue-500/10 text-blue-300 rounded-full border border-blue-500/20 backdrop-blur-sm">
+                <span className="text-xs sm:text-sm font-medium">Please respond to the goal above before continuing</span>
+              </div>
+            </div>
+          )}
+
           {isConversationCompleted && goalCount >= 2 && (
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
-                <span className="text-sm font-medium">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
+            <div className="mt-3 sm:mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-3 sm:px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
+                <span className="text-xs sm:text-sm font-medium text-center">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
               </div>
             </div>
           )}

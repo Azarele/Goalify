@@ -6,6 +6,7 @@ interface TypewriterTextProps {
   onComplete?: () => void;
   onProgress?: (progress: number) => void;
   enableVoiceSync?: boolean;
+  shouldStart?: boolean;
 }
 
 export const TypewriterText: React.FC<TypewriterTextProps> = ({ 
@@ -13,13 +14,24 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
   speed = 50, 
   onComplete,
   onProgress,
-  enableVoiceSync = false
+  enableVoiceSync = false,
+  shouldStart = true
 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [hasStarted, setHasStarted] = useState(false);
 
   useEffect(() => {
-    if (currentIndex < text.length) {
+    // ENHANCED: Only start typing when shouldStart is true (for voice sync)
+    if (!shouldStart && enableVoiceSync) {
+      return;
+    }
+
+    if (!hasStarted && shouldStart) {
+      setHasStarted(true);
+    }
+
+    if (hasStarted && currentIndex < text.length) {
       const timer = setTimeout(() => {
         setDisplayedText(prev => prev + text[currentIndex]);
         setCurrentIndex(prev => prev + 1);
@@ -32,20 +44,21 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
       }, speed);
 
       return () => clearTimeout(timer);
-    } else if (onComplete) {
+    } else if (hasStarted && currentIndex >= text.length && onComplete) {
       onComplete();
     }
-  }, [currentIndex, text, speed, onComplete, onProgress]);
+  }, [currentIndex, text, speed, onComplete, onProgress, shouldStart, enableVoiceSync, hasStarted]);
 
   useEffect(() => {
     setDisplayedText('');
     setCurrentIndex(0);
-  }, [text]);
+    setHasStarted(!enableVoiceSync); // Start immediately if not voice synced
+  }, [text, enableVoiceSync]);
 
   return (
     <div className="text-sm leading-relaxed">
       {displayedText}
-      {currentIndex < text.length && (
+      {hasStarted && currentIndex < text.length && (
         <span className={`${enableVoiceSync ? 'animate-pulse text-purple-400' : 'animate-pulse text-purple-400'}`}>|</span>
       )}
     </div>
