@@ -50,7 +50,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  // FIXED: Sidebars start closed and only show on desktop
+  // FIXED: Sidebars start closed but are controllable on mobile
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
@@ -635,25 +635,21 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
-      {/* FIXED: Only show sidebars on desktop (lg and up) */}
-      <div className="hidden lg:block">
-        <SessionSidebar 
-          isOpen={leftSidebarOpen}
-          onClose={() => setLeftSidebarOpen(false)}
-          currentConversationId={currentConversationId}
-          userProfile={userProfile}
-          onConversationSelect={handleConversationSelect}
-          onNewConversation={handleNewConversation}
-        />
-      </div>
+      {/* FIXED: Show sidebars on all screen sizes but make them controllable */}
+      <SessionSidebar 
+        isOpen={leftSidebarOpen}
+        onClose={() => setLeftSidebarOpen(false)}
+        currentConversationId={currentConversationId}
+        userProfile={userProfile}
+        onConversationSelect={handleConversationSelect}
+        onNewConversation={handleNewConversation}
+      />
 
-      <div className="hidden lg:block">
-        <GoalSidebar 
-          isOpen={rightSidebarOpen}
-          onClose={() => setRightSidebarOpen(false)}
-          userProfile={userProfile}
-        />
-      </div>
+      <GoalSidebar 
+        isOpen={rightSidebarOpen}
+        onClose={() => setRightSidebarOpen(false)}
+        userProfile={userProfile}
+      />
 
       <div className="flex-1 flex flex-col max-w-4xl mx-auto relative">
         <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-b border-purple-500/20 p-4 relative overflow-hidden">
@@ -661,8 +657,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           
           <div className="relative flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              {/* FIXED: Only show sidebar toggles on desktop */}
-              <div className="hidden lg:flex items-center space-x-2">
+              {/* FIXED: Show sidebar toggles on all screen sizes */}
+              <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
                   className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
@@ -705,7 +701,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 title="End current conversation"
               >
                 <X className="w-4 h-4" />
-                <span className="text-sm">End Chat</span>
+                <span className="text-sm hidden sm:inline">End Chat</span>
               </button>
 
               {isElevenLabsConfigured && (
@@ -722,8 +718,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </button>
               )}
               
-              {/* FIXED: Only show goal sidebar toggle on desktop */}
-              <div className="hidden lg:block">
+              {/* FIXED: Show goal sidebar toggle on all screen sizes */}
+              <div>
                 <button
                   onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
                   className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
