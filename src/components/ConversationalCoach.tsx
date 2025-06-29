@@ -58,6 +58,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [showEndChatButton, setShowEndChatButton] = useState(false);
   const [showXPAnimation, setShowXPAnimation] = useState(false);
   const [xpGained, setXpGained] = useState(0);
+  const [showContinueOptions, setShowContinueOptions] = useState(false);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -160,9 +161,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     const assistantMessages = messages.filter(m => m.role === 'assistant');
     const userMessages = messages.filter(m => m.role === 'user');
     
-    // Count goals created in this conversation by checking global goals
-    const goalStats = getGoalStats();
-    
     // Count coaching questions (not including goal propositions)
     const coachingQuestions = assistantMessages.filter(m => 
       !m.content.includes('[GOAL]') && 
@@ -194,6 +192,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         
         if (accepted || declined) {
           // After goal response, determine next state
+          const goalStats = getGoalStats();
           if (goalStats.total >= 3) {
             setAiState('ASKING_TO_CONCLUDE');
           } else {
@@ -253,6 +252,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setPendingGoal(null);
       setIsConversationCompleted(false);
       setShowEndChatButton(false);
+      setShowContinueOptions(false);
       setAiState('COACHING_Q1');
       setInputText('');
       resetTranscript();
@@ -352,7 +352,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     };
   };
 
-  // CRITICAL: Handle goal acceptance/decline with proper goal creation
+  // CRITICAL: Handle goal acceptance/decline with proper goal creation and continuation options
   const handleGoalResponse = async (accepted: boolean) => {
     if (!pendingGoal || !currentConversationId || !user) return;
 
@@ -371,7 +371,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // CRITICAL: Create and add goal to global goals system
+        // CRITICAL: Create and add goal to global goals system IMMEDIATELY
         const newGoal = {
           id: pendingGoal.id,
           description: pendingGoal.description,
@@ -383,13 +383,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           motivation: 7 // Default motivation level
         };
         
-        // Add to global goals system
+        // Add to global goals system immediately for instant visibility
         await addGoal(newGoal, currentConversationId);
         
         console.log(`✅ Goal accepted and added to global goals system:`, newGoal.description);
         
         setUserAcceptedGoal(true);
         setUserDeclinedGoal(false);
+        
+        // Show continuation options after goal acceptance
+        setShowContinueOptions(true);
       } else {
         setUserDeclinedGoal(true);
         setUserAcceptedGoal(false);
@@ -410,7 +413,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         userDeclinedGoal: !accepted,
         messageCount: newMessages.length,
         goalCount: goalStats.total,
-        questionCount
+        questionCount,
+        activeGoals: goalStats.pending,
+        completedGoals: goalStats.completed
       };
 
       const aiResponse = await generateCoachingResponse({
@@ -421,10 +426,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         context: contextForAI
       });
 
+      // Enhanced response for goal acceptance
+      let responseContent = aiResponse.response;
+      if (accepted) {
+        responseContent = `Perfect! I've added that challenge to your goals. You can track your progress in the goals panel on the right. ${aiResponse.response}`;
+      }
+
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: aiResponse.response,
+        content: responseContent,
         timestamp: new Date()
       };
 
@@ -445,12 +456,46 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          await playCoachResponse(aiResponse.response);
+          await playCoachResponse(responseContent.replace('[GOAL]', ''));
         }
-      }, aiResponse.response.length * 25);
+      }, responseContent.length * 25);
 
     } catch (error) {
       console.error('Error handling goal response:', error);
+    }
+  };
+
+  // CRITICAL: Handle continuation choice after goal acceptance
+  const handleContinueChoice = async (continueConversation: boolean) => {
+    setShowContinueOptions(false);
+    
+    if (continueConversation) {
+      // Continue with new coaching cycle
+      const continueMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: "Great! What else would you like to work on?",
+        timestamp: new Date()
+      };
+      
+      setActiveConversationMessages(prev => [...prev, continueMessage]);
+      setCurrentlyTyping(continueMessage.id);
+      setAiState('COACHING_Q1');
+      setQuestionCount(0);
+      
+      if (currentConversationId) {
+        await saveMessage(currentConversationId, continueMessage);
+      }
+      
+      setTimeout(() => {
+        setCurrentlyTyping(null);
+        if (voiceEnabled && isElevenLabsConfigured) {
+          playCoachResponse(continueMessage.content);
+        }
+      }, continueMessage.content.length * 25);
+    } else {
+      // End conversation
+      handleEndChat();
     }
   };
 
@@ -666,6 +711,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setPendingGoal(null);
     setIsConversationCompleted(false);
     setShowEndChatButton(false);
+    setShowContinueOptions(false);
     setInputText('');
     resetTranscript();
   };
@@ -918,6 +964,31 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* CRITICAL: Continue/End Options after goal acceptance */}
+              {showContinueOptions && index === activeConversationMessages.length - 1 && (
+                <div className="flex justify-start mt-4 animate-fade-in">
+                  <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-xl p-4 border border-green-500/20 backdrop-blur-sm">
+                    <p className="text-white text-sm mb-3 font-medium">Your goal has been added! What would you like to do next?</p>
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={() => handleContinueChoice(true)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>Continue Coaching</span>
+                      </button>
+                      <button
+                        onClick={() => handleContinueChoice(false)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>End Session</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           
@@ -950,10 +1021,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 className={`w-full p-4 pr-14 border-2 rounded-2xl bg-slate-700/50 text-white placeholder-purple-300 focus:ring-4 focus:ring-purple-500/30 focus:border-purple-400 transition-all duration-300 backdrop-blur-sm ${
                   isListening ? 'border-pink-400 bg-pink-500/10' : 'border-purple-500/30'
                 }`}
-                disabled={isLoading || isListening || isConversationCompleted || !!pendingGoal}
+                disabled={isLoading || isListening || isConversationCompleted || !!pendingGoal || showContinueOptions}
               />
               
-              {speechSupported && !isConversationCompleted && !pendingGoal && (
+              {speechSupported && !isConversationCompleted && !pendingGoal && !showContinueOptions && (
                 <button
                   type="button"
                   onClick={handleVoiceInput}
@@ -971,9 +1042,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             
             <button
               type="submit"
-              disabled={!inputText.trim() || isLoading || isConversationCompleted || !!pendingGoal}
+              disabled={!inputText.trim() || isLoading || isConversationCompleted || !!pendingGoal || showContinueOptions}
               className={`p-4 rounded-2xl font-medium transition-all duration-300 transform ${
-                inputText.trim() && !isLoading && !isConversationCompleted && !pendingGoal
+                inputText.trim() && !isLoading && !isConversationCompleted && !pendingGoal && !showContinueOptions
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-500/25 hover:shadow-xl hover:scale-105'
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
               }`}
@@ -995,6 +1066,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-500/10 text-blue-300 rounded-full border border-blue-500/20 backdrop-blur-sm">
                 <span className="text-sm font-medium">Please respond to the goal above before continuing</span>
+              </div>
+            </div>
+          )}
+
+          {showContinueOptions && (
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
+                <span className="text-sm font-medium">Choose your next step above to continue</span>
               </div>
             </div>
           )}
