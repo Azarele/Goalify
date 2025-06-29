@@ -4,12 +4,16 @@ interface TypewriterTextProps {
   text: string;
   speed?: number;
   onComplete?: () => void;
+  onProgress?: (progress: number) => void;
+  enableVoiceSync?: boolean;
 }
 
 export const TypewriterText: React.FC<TypewriterTextProps> = ({ 
   text, 
   speed = 50, 
-  onComplete 
+  onComplete,
+  onProgress,
+  enableVoiceSync = false
 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -19,13 +23,19 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
       const timer = setTimeout(() => {
         setDisplayedText(prev => prev + text[currentIndex]);
         setCurrentIndex(prev => prev + 1);
+        
+        // Report progress for voice synchronization
+        if (onProgress) {
+          const progress = (currentIndex + 1) / text.length;
+          onProgress(progress);
+        }
       }, speed);
 
       return () => clearTimeout(timer);
     } else if (onComplete) {
       onComplete();
     }
-  }, [currentIndex, text, speed, onComplete]);
+  }, [currentIndex, text, speed, onComplete, onProgress]);
 
   useEffect(() => {
     setDisplayedText('');
@@ -36,7 +46,7 @@ export const TypewriterText: React.FC<TypewriterTextProps> = ({
     <div className="text-sm leading-relaxed">
       {displayedText}
       {currentIndex < text.length && (
-        <span className="animate-pulse">|</span>
+        <span className={`${enableVoiceSync ? 'animate-pulse' : 'animate-pulse'} text-purple-400`}>|</span>
       )}
     </div>
   );

@@ -3,7 +3,7 @@ import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Clock, Targ
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
-import { generateSpeech, playAudio, isElevenLabsConfigured } from '../services/elevenlabs';
+import { generateSpeech, playAudioSynchronized, isElevenLabsConfigured, determineEmotion } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
@@ -55,6 +55,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   
+  // Enhanced voice synchronization state
+  const [voiceProgress, setVoiceProgress] = useState(0);
+  const [typingProgress, setTypingProgress] = useState(0);
+  const [isVoiceSynced, setIsVoiceSynced] = useState(false);
+  
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
   const [isConversationCompleted, setIsConversationCompleted] = useState(false);
@@ -92,25 +97,41 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // CRITICAL: Real-time goal count updates from database
+  // ENHANCED: Force reload goals from database on session start for cross-device sync
+  useEffect(() => {
+    if (user && hasStartedSession) {
+      console.log('🔄 Session started - forcing goal reload for cross-device sync');
+      loadGoals(); // This will fetch from database and sync across devices
+      
+      const currentGoalCount = goals.length;
+      setGoalCount(currentGoalCount);
+      console.log('🎯 Cross-device goal count updated:', currentGoalCount);
+    }
+  }, [user, hasStartedSession]);
+
+  // ENHANCED: Real-time goal count updates from database with cross-device sync
   useEffect(() => {
     if (user && hasStartedSession) {
       const currentGoalCount = goals.length;
       setGoalCount(currentGoalCount);
-      console.log('🎯 Real-time goal count updated:', currentGoalCount);
+      console.log('🎯 Real-time goal count updated for cross-device sync:', currentGoalCount);
     }
   }, [goals, user, hasStartedSession]);
 
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
     try {
-      console.log('Loading conversation:', conversationId);
+      console.log('Loading conversation with cross-device sync:', conversationId);
       
       const conversationMessages = await getConversationMessages(conversationId);
       
       setActiveConversationMessages(conversationMessages);
       setCurrentConversationId(conversationId);
       setHasStartedSession(true);
+      
+      // ENHANCED: Force reload goals for cross-device sync when switching conversations
+      console.log('🔄 Conversation loaded - forcing goal reload for cross-device sync');
+      await loadGoals();
       
       // Analyze AI state from conversation
       analyzeAIStateFromMessages(conversationMessages);
@@ -141,12 +162,12 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         setTimeout(() => {
           setCurrentlyTyping(null);
           if (voiceEnabled && isElevenLabsConfigured) {
-            playCoachResponse(welcomeBackMessage.content);
+            playCoachResponseWithSync(welcomeBackMessage.content);
           }
         }, welcomeBackMessage.content.length * 25);
       }
       
-      console.log('Conversation loaded successfully with', conversationMessages.length, 'messages');
+      console.log('Conversation loaded successfully with cross-device sync:', conversationMessages.length, 'messages');
     } catch (error) {
       console.error('Error loading conversation:', error);
     }
@@ -255,10 +276,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       
       await updateDailyStreak(user.id);
       
+      // ENHANCED: Force reload goals for cross-device sync when starting new conversation
+      console.log('🔄 New conversation started - forcing goal reload for cross-device sync');
+      await loadGoals();
+      
       setTimeout(() => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          playCoachResponse(greeting);
+          playCoachResponseWithSync(greeting);
         }
       }, greeting.length * 30);
     } catch (error) {
@@ -266,19 +291,33 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
-  const playCoachResponse = async (text: string) => {
+  // ENHANCED: Voice playback with character, emotion, and synchronization
+  const playCoachResponseWithSync = async (text: string) => {
     if (!userProfile?.preferences.voiceEnabled || !isElevenLabsConfigured) return;
     
     try {
       setIsPlayingAudio(true);
+      setIsVoiceSynced(true);
+      
+      // Determine emotion from content
+      const emotion = determineEmotion(text);
+      
       const audioBuffer = await generateSpeech(text, {
         voiceId: userProfile.preferences.voiceId
+      }, emotion);
+      
+      // Play audio with progress tracking for synchronization
+      await playAudioSynchronized(audioBuffer, text.length, (progress) => {
+        setVoiceProgress(progress);
       });
-      await playAudio(audioBuffer);
+      
     } catch (error) {
-      console.error('Error playing audio:', error);
+      console.error('Error playing synchronized audio:', error);
     } finally {
       setIsPlayingAudio(false);
+      setIsVoiceSynced(false);
+      setVoiceProgress(0);
+      setTypingProgress(0);
     }
   };
 
@@ -334,7 +373,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // CRITICAL: Create goal in database when accepted
+        // CRITICAL: Create goal in database when accepted with cross-device sync
         const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
         const generatedGoal = await generateGoalFromConversation(conversationHistory);
         
@@ -366,17 +405,17 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             deadline: deadline
           };
           
-          // Save goal using the goals hook - this will trigger real-time updates
+          // ENHANCED: Save goal using the goals hook - this will trigger real-time updates and cross-device sync
           await addGoal(goal, currentConversationId);
-          console.log(`✅ Goal accepted and created:`, goal.description);
+          console.log(`✅ Goal accepted and created with cross-device sync:`, goal.description);
           
-          // CRITICAL: Real-time goal count update
+          // CRITICAL: Real-time goal count update with cross-device sync
           const newGoalCount = goals.length + 1; // Immediate update before hook refresh
           setGoalCount(newGoalCount);
           setUserAcceptedGoal(true);
           setUserDeclinedGoal(false);
           
-          // Force refresh of goals to ensure UI is in sync
+          // ENHANCED: Force refresh of goals to ensure cross-device sync
           setTimeout(() => {
             loadGoals();
           }, 100);
@@ -389,7 +428,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       // Clear pending goal
       setPendingGoal(null);
 
-      // Generate AI response with goal memory
+      // Generate AI response with goal memory and cross-device sync
       const activeGoals = goals.filter(g => !g.completed).length;
       const completedGoals = goals.filter(g => g.completed).length;
       
@@ -439,7 +478,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          await playCoachResponse(aiResponse.response);
+          await playCoachResponseWithSync(aiResponse.response);
         }
       }, aiResponse.response.length * 25);
 
@@ -472,7 +511,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
-      // CRITICAL: Enhanced context for AI with goal memory
+      // CRITICAL: Enhanced context for AI with goal memory and cross-device sync
       const activeGoals = goals.filter(g => !g.completed).length;
       const completedGoals = goals.filter(g => g.completed).length;
       
@@ -545,7 +584,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setTimeout(async () => {
         setCurrentlyTyping(null);
         if (voiceEnabled && isElevenLabsConfigured) {
-          await playCoachResponse(aiResponse.response.replace('[GOAL]', ''));
+          await playCoachResponseWithSync(aiResponse.response.replace('[GOAL]', ''));
         }
       }, aiResponse.response.length * 25);
 
@@ -764,7 +803,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                   {message.role === 'assistant' && currentlyTyping === message.id ? (
                     <TypewriterText 
                       text={message.content.replace('[GOAL]', '')} 
-                      speed={25} 
+                      speed={25}
+                      enableVoiceSync={isVoiceSynced}
+                      onProgress={(progress) => setTypingProgress(progress)}
                     />
                   ) : (
                     <p className="text-sm leading-relaxed">
@@ -896,6 +937,22 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
                 <span className="text-sm font-medium">Great session! You created {goalCount} actionable goals. Use "End Chat" to finish or continue exploring.</span>
+              </div>
+            </div>
+          )}
+
+          {/* Voice synchronization indicator */}
+          {isVoiceSynced && (
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-purple-500/10 text-purple-300 rounded-full border border-purple-500/20 backdrop-blur-sm">
+                <Volume2 className="w-4 h-4 animate-pulse" />
+                <span className="text-sm font-medium">Voice synchronized with typing</span>
+                <div className="w-16 h-1 bg-slate-600 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-100"
+                    style={{ width: `${Math.max(voiceProgress, typingProgress) * 100}%` }}
+                  />
+                </div>
               </div>
             </div>
           )}

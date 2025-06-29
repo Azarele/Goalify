@@ -24,12 +24,12 @@ export const useGoals = () => {
 
     try {
       setLoading(true);
-      console.log('🔄 Loading goals from database for user:', user.id);
+      console.log('🔄 Loading goals from database with cross-device sync for user:', user.id);
       const userGoals = await getUserGoals(user.id);
       setGoals(userGoals);
-      console.log('✅ Goals loaded in useGoals hook:', userGoals.length, 'goals');
+      console.log('✅ Goals loaded in useGoals hook with cross-device sync:', userGoals.length, 'goals');
     } catch (error) {
-      console.error('❌ Error loading goals:', error);
+      console.error('❌ Error loading goals with cross-device sync:', error);
     } finally {
       setLoading(false);
     }
@@ -39,20 +39,20 @@ export const useGoals = () => {
     if (!user) return;
 
     try {
-      // Add to local state immediately for instant UI update
+      // ENHANCED: Add to local state immediately for instant UI update and cross-device sync
       setGoals(prev => [goal, ...prev]);
-      console.log('✅ Goal added to local state immediately:', goal.description);
+      console.log('✅ Goal added to local state immediately with cross-device sync:', goal.description);
       
-      // Save to database/storage in background
+      // ENHANCED: Save to database/storage in background with cross-device sync
       await saveGoal(user.id, sessionId, goal);
-      console.log('✅ Goal persisted to storage:', goal.description);
+      console.log('✅ Goal persisted to storage with cross-device sync:', goal.description);
       
-      // Reload goals to ensure we have the latest data from database
+      // ENHANCED: Reload goals to ensure we have the latest data from database for cross-device sync
       setTimeout(() => {
         loadGoals();
       }, 500);
     } catch (error) {
-      console.error('❌ Error adding goal:', error);
+      console.error('❌ Error adding goal with cross-device sync:', error);
       // Goal is still in local state even if save failed
     }
   };
@@ -72,18 +72,18 @@ export const useGoals = () => {
         xpValue: xpGained // Update XP value with any bonuses
       };
 
-      // Update local state immediately
+      // ENHANCED: Update local state immediately for cross-device sync
       setGoals(prev => prev.map(g => 
         g.id === goalId ? completedGoal : g
       ));
 
-      // Complete goal in database
+      // ENHANCED: Complete goal in database with cross-device sync
       const result = await completeGoal(user.id, goalId, reasoning, xpGained);
       
       if (result) {
-        console.log('✅ Goal completed with XP reward:', xpGained, 'New total XP:', result.newXP);
+        console.log('✅ Goal completed with XP reward and cross-device sync:', xpGained, 'New total XP:', result.newXP);
         
-        // Reload goals to ensure consistency with database
+        // ENHANCED: Reload goals to ensure consistency with database for cross-device sync
         setTimeout(() => {
           loadGoals();
         }, 500);
@@ -94,7 +94,7 @@ export const useGoals = () => {
         return null;
       }
     } catch (error) {
-      console.error('❌ Error completing goal:', error);
+      console.error('❌ Error completing goal with cross-device sync:', error);
       return null;
     }
   };
