@@ -242,7 +242,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
       `}>
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="p-6 border-b border-purple-500/20">
+          <div className="p-6 border-b border-purple-500/20 flex-shrink-0">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2">
                 <Target className="w-5 h-5 text-purple-400" />
@@ -279,8 +279,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
             )}
           </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* ENHANCED: Content with Individual Scrolling */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent min-h-0">
             {/* Global Goal Stats */}
             <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20">
               <div className="text-center">
@@ -329,7 +329,7 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                   </span>
                 </h4>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent">
                   {pendingGoals.map((goal) => {
                     const completionState = completionStates[goal.id];
                     const timeInfo = goal.deadline ? getTimeRemaining(goal.deadline, goal.createdAt) : null;
@@ -344,8 +344,8 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                             <div className="mt-1 w-5 h-5 border-2 border-purple-400 rounded hover:bg-purple-400 transition-colors flex items-center justify-center group-hover:border-purple-300">
                               {goal.completed && <CheckCircle className="w-3 h-3 text-white" />}
                             </div>
-                            <div className="flex-1">
-                              <p className="text-sm text-white group-hover:text-purple-200 transition-colors">{goal.description}</p>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white group-hover:text-purple-200 transition-colors break-words">{goal.description}</p>
                               
                               <div className="flex items-center space-x-2 mt-2">
                                 <span className={`text-xs px-2 py-1 rounded-full ${getDifficultyColor(goal.difficulty)}`}>
@@ -521,16 +521,16 @@ export const GoalSidebar: React.FC<GoalSidebarProps> = ({
                   </span>
                 </h4>
                 
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent">
                   {completedGoals.map((goal) => (
                     <div 
                       key={goal.id}
                       className="p-3 bg-green-500/10 rounded-lg border border-green-500/20"
                     >
                       <div className="flex items-start space-x-3">
-                        <CheckCircle className="w-5 h-5 text-green-400 mt-1" />
-                        <div className="flex-1">
-                          <p className="text-sm text-white line-through opacity-75">{goal.description}</p>
+                        <CheckCircle className="w-5 h-5 text-green-400 mt-1 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white line-through opacity-75 break-words">{goal.description}</p>
                           <div className="flex items-center justify-between mt-2">
                             <div className="flex items-center space-x-2">
                               <span className="text-xs text-green-400">

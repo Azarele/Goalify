@@ -5,7 +5,7 @@ import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
 import { generateSpeech, playAudioSynchronized, isElevenLabsConfigured, determineEmotion } from '../services/elevenlabs';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak } from '../services/database';
+import { createConversation, getConversationMessages, saveMessage, updateConversation, saveGoal, updateDailyStreak, syncPendingData } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { useGoals } from '../hooks/useGoals';
 import { TypewriterText } from './TypewriterText';
@@ -98,31 +98,36 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // ENHANCED: Force reload goals from database on session start for cross-device sync
+  // ENHANCED: Real-time cross-device sync on session start
   useEffect(() => {
     if (user && hasStartedSession) {
-      console.log('🔄 Session started - forcing goal reload for cross-device sync');
-      loadGoals(); // This will fetch from database and sync across devices
+      console.log('🔄 Session started - initiating real-time cross-device sync');
+      
+      // Sync any pending data first
+      syncPendingData(user.id);
+      
+      // Force reload goals from database for cross-device sync
+      loadGoals();
       
       const currentGoalCount = goals.length;
       setGoalCount(currentGoalCount);
-      console.log('🎯 Cross-device goal count updated:', currentGoalCount);
+      console.log('🎯 Real-time cross-device goal count updated:', currentGoalCount);
     }
   }, [user, hasStartedSession]);
 
-  // ENHANCED: Real-time goal count updates from database with cross-device sync
+  // ENHANCED: Real-time goal count updates with cross-device sync
   useEffect(() => {
     if (user && hasStartedSession) {
       const currentGoalCount = goals.length;
       setGoalCount(currentGoalCount);
-      console.log('🎯 Real-time goal count updated for cross-device sync:', currentGoalCount);
+      console.log('🎯 Real-time cross-device goal count updated:', currentGoalCount);
     }
   }, [goals, user, hasStartedSession]);
 
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
     try {
-      console.log('Loading conversation with cross-device sync:', conversationId);
+      console.log('Loading conversation with real-time cross-device sync:', conversationId);
       
       const conversationMessages = await getConversationMessages(conversationId);
       
@@ -130,8 +135,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setCurrentConversationId(conversationId);
       setHasStartedSession(true);
       
-      // ENHANCED: Force reload goals for cross-device sync when switching conversations
-      console.log('🔄 Conversation loaded - forcing goal reload for cross-device sync');
+      // ENHANCED: Force reload goals for real-time cross-device sync when switching conversations
+      console.log('🔄 Conversation loaded - forcing goal reload for real-time cross-device sync');
       await loadGoals();
       
       // Analyze AI state from conversation
@@ -168,7 +173,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         }, welcomeBackMessage.content.length * 25);
       }
       
-      console.log('Conversation loaded successfully with cross-device sync:', conversationMessages.length, 'messages');
+      console.log('Conversation loaded successfully with real-time cross-device sync:', conversationMessages.length, 'messages');
     } catch (error) {
       console.error('Error loading conversation:', error);
     }
@@ -277,8 +282,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       
       await updateDailyStreak(user.id);
       
-      // ENHANCED: Force reload goals for cross-device sync when starting new conversation
-      console.log('🔄 New conversation started - forcing goal reload for cross-device sync');
+      // ENHANCED: Force reload goals for real-time cross-device sync when starting new conversation
+      console.log('🔄 New conversation started - forcing goal reload for real-time cross-device sync');
       await loadGoals();
       
       setTimeout(() => {
@@ -403,7 +408,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       await saveMessage(currentConversationId, userMessage);
 
       if (accepted) {
-        // CRITICAL: Create goal in database when accepted with cross-device sync
+        // CRITICAL: Create goal in database when accepted with real-time cross-device sync
         const conversationHistory = newMessages.map(m => `${m.role}: ${m.content}`).join('\n');
         const generatedGoal = await generateGoalFromConversation(conversationHistory);
         
@@ -437,7 +442,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           
           // ENHANCED: Save goal using the goals hook - this will trigger real-time updates and cross-device sync
           await addGoal(goal, currentConversationId);
-          console.log(`✅ Goal accepted and created with cross-device sync:`, goal.description);
+          console.log(`✅ Goal accepted and created with real-time cross-device sync:`, goal.description);
           
           // CRITICAL: Real-time goal count update with cross-device sync
           const newGoalCount = goals.length + 1; // Immediate update before hook refresh
@@ -445,7 +450,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           setUserAcceptedGoal(true);
           setUserDeclinedGoal(false);
           
-          // ENHANCED: Force refresh of goals to ensure cross-device sync
+          // ENHANCED: Force refresh of goals to ensure real-time cross-device sync
           setTimeout(() => {
             loadGoals();
           }, 100);
@@ -458,7 +463,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       // Clear pending goal
       setPendingGoal(null);
 
-      // Generate AI response with goal memory and cross-device sync
+      // Generate AI response with goal memory and real-time cross-device sync
       const activeGoals = goals.filter(g => !g.completed).length;
       const completedGoals = goals.filter(g => g.completed).length;
       
@@ -541,7 +546,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       const newContext = analyzeConversationContext(newMessages);
       setContext(newContext);
 
-      // CRITICAL: Enhanced context for AI with goal memory and cross-device sync
+      // CRITICAL: Enhanced context for AI with goal memory and real-time cross-device sync
       const activeGoals = goals.filter(g => !g.completed).length;
       const completedGoals = goals.filter(g => g.completed).length;
       
@@ -793,6 +798,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                   <Target className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 group-hover:text-white" />
                 </button>
               </div>
+              
+              {isPlayingAudio && (
+                <VoiceIndicator />
+              )}
             </div>
           </div>
 
@@ -805,10 +814,10 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           )}
         </div>
 
-        {/* ENHANCED: Mobile-optimized chat area */}
+        {/* ENHANCED: Mobile-optimized chat area with individual scrolling */}
         <div 
           ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll min-h-0"
+          className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-800 chat-scroll min-h-0 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent"
         >
           {activeConversationMessages.map((message, index) => (
             <div key={message.id}>
@@ -832,7 +841,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                       shouldStart={shouldStartTyping}
                     />
                   ) : (
-                    <p className="text-sm leading-relaxed">
+                    <p className="text-sm leading-relaxed break-words">
                       {/* CRITICAL: Remove [GOAL] tag from display but keep original content for processing */}
                       {message.content.replace('[GOAL]', '')}
                     </p>

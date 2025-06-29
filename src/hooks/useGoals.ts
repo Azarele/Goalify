@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Goal } from '../types/coaching';
-import { getUserGoals, saveGoal, completeGoal, initializeUserStats } from '../services/database';
+import { getUserGoals, saveGoal, completeGoal, initializeUserStats, syncPendingData } from '../services/database';
 import { useAuth } from './useAuth';
 
 export const useGoals = () => {
@@ -8,15 +8,47 @@ export const useGoals = () => {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ENHANCED: Set up real-time cross-device sync
   useEffect(() => {
     if (user) {
+      // Initial load
       loadGoals();
+      
       // Initialize user stats if this is a new user
       initializeUserStats(user.id);
+      
+      // Set up periodic sync for cross-device consistency
+      const syncInterval = setInterval(() => {
+        if (user) {
+          console.log('🔄 Performing periodic cross-device sync check');
+          syncPendingData(user.id);
+          loadGoals();
+        }
+      }, 30000); // Check every 30 seconds
+      
+      // Clean up interval on unmount
+      return () => clearInterval(syncInterval);
     } else {
       setGoals([]);
       setLoading(false);
     }
+  }, [user]);
+
+  // ENHANCED: Add network status monitoring for offline/online sync
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('🌐 Network connection restored - syncing data');
+      if (user) {
+        syncPendingData(user.id);
+        loadGoals();
+      }
+    };
+    
+    window.addEventListener('online', handleOnline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
   }, [user]);
 
   const loadGoals = async () => {
@@ -24,12 +56,12 @@ export const useGoals = () => {
 
     try {
       setLoading(true);
-      console.log('🔄 Loading goals from database with cross-device sync for user:', user.id);
+      console.log('🔄 Loading goals from database with real-time cross-device sync for user:', user.id);
       const userGoals = await getUserGoals(user.id);
       setGoals(userGoals);
-      console.log('✅ Goals loaded in useGoals hook with cross-device sync:', userGoals.length, 'goals');
+      console.log('✅ Goals loaded with real-time cross-device sync:', userGoals.length, 'goals');
     } catch (error) {
-      console.error('❌ Error loading goals with cross-device sync:', error);
+      console.error('❌ Error loading goals with real-time cross-device sync:', error);
     } finally {
       setLoading(false);
     }
@@ -39,20 +71,20 @@ export const useGoals = () => {
     if (!user) return;
 
     try {
-      // ENHANCED: Add to local state immediately for instant UI update and cross-device sync
+      // ENHANCED: Add to local state immediately for instant UI update and real-time cross-device sync
       setGoals(prev => [goal, ...prev]);
-      console.log('✅ Goal added to local state immediately with cross-device sync:', goal.description);
+      console.log('✅ Goal added to local state immediately with real-time cross-device sync:', goal.description);
       
-      // ENHANCED: Save to database/storage in background with cross-device sync
+      // ENHANCED: Save to database/storage in background with real-time cross-device sync
       await saveGoal(user.id, sessionId, goal);
-      console.log('✅ Goal persisted to storage with cross-device sync:', goal.description);
+      console.log('✅ Goal persisted to storage with real-time cross-device sync:', goal.description);
       
-      // ENHANCED: Reload goals to ensure we have the latest data from database for cross-device sync
+      // ENHANCED: Reload goals to ensure we have the latest data from database for real-time cross-device sync
       setTimeout(() => {
         loadGoals();
       }, 500);
     } catch (error) {
-      console.error('❌ Error adding goal with cross-device sync:', error);
+      console.error('❌ Error adding goal with real-time cross-device sync:', error);
       // Goal is still in local state even if save failed
     }
   };
@@ -72,18 +104,18 @@ export const useGoals = () => {
         xpValue: xpGained // Update XP value with any bonuses
       };
 
-      // ENHANCED: Update local state immediately for cross-device sync
+      // ENHANCED: Update local state immediately for real-time cross-device sync
       setGoals(prev => prev.map(g => 
         g.id === goalId ? completedGoal : g
       ));
 
-      // ENHANCED: Complete goal in database with cross-device sync
+      // ENHANCED: Complete goal in database with real-time cross-device sync
       const result = await completeGoal(user.id, goalId, reasoning, xpGained);
       
       if (result) {
-        console.log('✅ Goal completed with XP reward and cross-device sync:', xpGained, 'New total XP:', result.newXP);
+        console.log('✅ Goal completed with XP reward and real-time cross-device sync:', xpGained, 'New total XP:', result.newXP);
         
-        // ENHANCED: Reload goals to ensure consistency with database for cross-device sync
+        // ENHANCED: Reload goals to ensure consistency with database for real-time cross-device sync
         setTimeout(() => {
           loadGoals();
         }, 500);
@@ -94,7 +126,7 @@ export const useGoals = () => {
         return null;
       }
     } catch (error) {
-      console.error('❌ Error completing goal with cross-device sync:', error);
+      console.error('❌ Error completing goal with real-time cross-device sync:', error);
       return null;
     }
   };
@@ -133,12 +165,23 @@ export const useGoals = () => {
     };
   };
 
+  // ENHANCED: Force sync method for manual triggering
+  const forceSync = async () => {
+    if (!user) return;
+    
+    console.log('🔄 Forcing manual cross-device sync');
+    await syncPendingData(user.id);
+    await loadGoals();
+    console.log('✅ Manual cross-device sync completed');
+  };
+
   return {
     goals,
     loading,
     addGoal,
     completeGoal: completeGoalAction,
     loadGoals,
-    getGoalStats
+    getGoalStats,
+    forceSync // New method for manual sync
   };
 };

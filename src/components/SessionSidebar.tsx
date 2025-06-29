@@ -274,7 +274,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           </span>
         </div>
         
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent">
           {conversations.map((conversation) => {
             const isLabeling = labelingConversations.has(conversation.id);
             
@@ -300,7 +300,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     </div>
                     
                     {/* Conversation Title/Label */}
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <span className={`text-sm font-medium line-clamp-2 transition-colors ${
                         isLabeling 
                           ? 'text-purple-400'
@@ -411,7 +411,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       `}>
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="p-6 border-b border-purple-500/20">
+          <div className="p-6 border-b border-purple-500/20 flex-shrink-0">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2">
                 <MessageCircle className="w-5 h-5 text-purple-400" />
@@ -475,8 +475,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </div>
           </div>
 
-          {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* ENHANCED: Conversations List with Individual Scrolling */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent min-h-0">
             {loading ? (
               <div className="text-center py-8">
                 <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>

@@ -26,6 +26,33 @@ body {
   background: rgba(168, 85, 247, 0.7);
 }
 
+/* Enhanced scrollbar for thin elements */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.3);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.5);
+}
+
+.scrollbar-thumb-purple-500\/30::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.3);
+}
+
+.scrollbar-track-transparent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Animation keyframes */
 @keyframes fadeIn {
   from {
@@ -497,4 +524,27 @@ input:checked + .toggle-slider:before {
     transform: scale(1);
     opacity: 1;
   }
+}
+
+/* ENHANCED: Fix for mobile layout */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ENHANCED: Ensure proper scrolling for individual containers */
+.min-h-0 {
+  min-height: 0;
+}
+
+/* ENHANCED: Ensure proper word wrapping */
+.break-words {
+  word-break: break-word;
+}
+
+/* ENHANCED: Ensure proper text truncation */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

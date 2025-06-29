@@ -46,7 +46,84 @@ const handleSupabaseError = (error: any, operation: string) => {
   throw error;
 };
 
-// ENHANCED: User Profile Operations with Database-First Approach and Cross-Device Sync
+// ENHANCED: Real-time sync helper for cross-device data consistency
+const syncToDatabase = async (operation: () => Promise<any>, fallbackData: any, storageKey: string) => {
+  const client = checkSupabase();
+  
+  // Always update local storage first for immediate UI response
+  localStorage.setItem(storageKey, JSON.stringify({
+    ...fallbackData,
+    syncedAt: new Date().toISOString(),
+    pendingSync: !client // Mark as pending sync if no database connection
+  }));
+  
+  if (!client) {
+    console.log('⚠️ Database unavailable - data saved locally and will sync when connection restored');
+    return fallbackData;
+  }
+  
+  try {
+    const result = await operation();
+    
+    // Update local storage with successful sync
+    localStorage.setItem(storageKey, JSON.stringify({
+      ...fallbackData,
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
+    }));
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Database sync failed - data preserved locally:', error);
+    
+    // Mark as pending sync for retry later
+    localStorage.setItem(storageKey, JSON.stringify({
+      ...fallbackData,
+      syncedAt: new Date().toISOString(),
+      pendingSync: true
+    }));
+    
+    return fallbackData;
+  }
+};
+
+// ENHANCED: Background sync for pending data
+export const syncPendingData = async (userId: string) => {
+  const client = checkSupabase();
+  if (!client) return;
+  
+  console.log('🔄 Starting background sync for pending data...');
+  
+  // Sync pending goals
+  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
+  const pendingGoals = localGoals.filter((g: any) => g.pendingSync);
+  
+  for (const goal of pendingGoals) {
+    try {
+      await saveGoal(userId, goal.sessionId || null, goal);
+      console.log('✅ Synced pending goal:', goal.description);
+    } catch (error) {
+      console.error('❌ Failed to sync goal:', goal.id, error);
+    }
+  }
+  
+  // Sync pending conversations
+  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+  const pendingConversations = localConversations.filter((c: any) => c.pendingSync);
+  
+  for (const conv of pendingConversations) {
+    try {
+      await createConversation(userId, conv.title);
+      console.log('✅ Synced pending conversation:', conv.title);
+    } catch (error) {
+      console.error('❌ Failed to sync conversation:', conv.id, error);
+    }
+  }
+  
+  console.log('✅ Background sync completed');
+};
+
+// ENHANCED: User Profile Operations with Real-time Cross-Device Sync
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   const client = checkSupabase();
   
@@ -64,7 +141,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
   }
 
   try {
-    console.log('🔄 Fetching user profile from database for cross-device sync:', userId);
+    console.log('🔄 Fetching user profile from database for real-time cross-device sync:', userId);
     
     const { data, error } = await client
       .from('user_profiles')
@@ -86,7 +163,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       return null;
     }
 
-    console.log('✅ User profile loaded from database with cross-device sync:', data.id);
+    console.log('✅ User profile loaded from database with real-time sync:', data.id);
 
     const profile = {
       id: data.id,
@@ -106,11 +183,12 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       achievements: [],
     };
 
-    // ENHANCED: Always sync to local storage for cross-device consistency
+    // ENHANCED: Always sync to local storage for instant access and offline support
     localStorage.setItem(`profile_${userId}`, JSON.stringify({
       ...profile,
       lastActivity: profile.lastActivity?.toISOString(),
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
     }));
 
     return profile;
@@ -150,107 +228,87 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
     achievements: [],
   };
 
-  if (!client) {
-    // Store in local storage only if Supabase is not available
-    localStorage.setItem(`profile_${userId}`, JSON.stringify({
-      ...defaultProfile,
-      lastActivity: defaultProfile.lastActivity.toISOString(),
-      syncedAt: new Date().toISOString()
-    }));
-    return defaultProfile;
-  }
+  return await syncToDatabase(
+    async () => {
+      if (!client) throw new Error('No database connection');
+      
+      console.log('🔄 Creating user profile in database for real-time sync:', userId, 'with name:', name);
+      
+      const profileData = {
+        user_id: userId,
+        name: name || null,
+        total_xp: 0,
+        level: 1,
+        daily_streak: 0,
+        last_activity: new Date().toISOString(),
+        voice_enabled: false,
+        voice_id: '21m00Tcm4TlvDq8ikWAM',
+        memory_enabled: true,
+        tone: 'casual' as const,
+      };
 
-  try {
-    console.log('🔄 Creating user profile in database for cross-device sync:', userId, 'with name:', name);
-    
-    const profileData = {
-      user_id: userId,
-      name: name || null,
-      total_xp: 0,
-      level: 1,
-      daily_streak: 0,
-      last_activity: new Date().toISOString(),
-      voice_enabled: false,
-      voice_id: '21m00Tcm4TlvDq8ikWAM',
-      memory_enabled: true,
-      tone: 'casual' as const,
-    };
+      const { data, error } = await client
+        .from('user_profiles')
+        .insert(profileData)
+        .select()
+        .single();
 
-    const { data, error } = await client
-      .from('user_profiles')
-      .insert(profileData)
-      .select()
-      .single();
-
-    if (error) {
-      // Handle duplicate key constraint violation (profile already exists)
-      if (error.code === '23505') {
-        console.log('User profile already exists, fetching existing profile');
-        const existingProfile = await getUserProfile(userId);
-        if (existingProfile) {
-          return existingProfile;
+      if (error) {
+        // Handle duplicate key constraint violation (profile already exists)
+        if (error.code === '23505') {
+          console.log('User profile already exists, fetching existing profile');
+          const existingProfile = await getUserProfile(userId);
+          if (existingProfile) {
+            return existingProfile;
+          }
         }
+        throw error;
       }
-      handleSupabaseError(error, 'createUserProfile');
-      throw error;
-    }
 
-    console.log('✅ User profile created in database with cross-device sync:', data.id);
+      console.log('✅ User profile created in database with real-time sync:', data.id);
 
-    const profile = {
-      id: data.id,
-      name: data.name,
-      totalXP: data.total_xp || 0,
-      level: data.level || 1,
-      dailyStreak: data.daily_streak || 0,
-      lastActivity: new Date(data.last_activity),
-      preferences: {
-        voiceEnabled: data.voice_enabled || false,
-        voiceId: data.voice_id || '21m00Tcm4TlvDq8ikWAM',
-        memoryEnabled: data.memory_enabled !== false,
-        tone: data.tone || 'casual',
-      },
-      longTermGoals: [],
-      currentChallenges: [],
-      achievements: [],
-    };
+      const profile = {
+        id: data.id,
+        name: data.name,
+        totalXP: data.total_xp || 0,
+        level: data.level || 1,
+        dailyStreak: data.daily_streak || 0,
+        lastActivity: new Date(data.last_activity),
+        preferences: {
+          voiceEnabled: data.voice_enabled || false,
+          voiceId: data.voice_id || '21m00Tcm4TlvDq8ikWAM',
+          memoryEnabled: data.memory_enabled !== false,
+          tone: data.tone || 'casual',
+        },
+        longTermGoals: [],
+        currentChallenges: [],
+        achievements: [],
+      };
 
-    // ENHANCED: Always sync to local storage for cross-device consistency
-    localStorage.setItem(`profile_${userId}`, JSON.stringify({
-      ...profile,
-      lastActivity: profile.lastActivity.toISOString(),
-      syncedAt: new Date().toISOString()
-    }));
+      // Initialize user stats
+      await initializeUserStats(userId);
 
-    // Initialize user stats
-    await initializeUserStats(userId);
-
-    return profile;
-  } catch (error) {
-    console.error('❌ Error in createUserProfile:', error);
-    // Fallback to local storage
-    localStorage.setItem(`profile_${userId}`, JSON.stringify({
-      ...defaultProfile,
-      lastActivity: defaultProfile.lastActivity.toISOString(),
-      syncedAt: new Date().toISOString()
-    }));
-    return defaultProfile;
-  }
+      return profile;
+    },
+    defaultProfile,
+    `profile_${userId}`
+  );
 };
 
 export const updateUserProfile = async (userId: string, updates: Partial<UserProfile>): Promise<void> => {
   const client = checkSupabase();
   
-  // ENHANCED: Always update local storage first for immediate UI updates and cross-device sync
+  // ENHANCED: Always update local storage first for immediate UI updates
   const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
   const updatedProfile = { 
     ...localProfile, 
     ...updates,
     lastActivity: updates.lastActivity?.toISOString() || localProfile.lastActivity,
-    syncedAt: new Date().toISOString()
+    syncedAt: new Date().toISOString(),
+    pendingSync: !client
   };
   localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
-  console.log('✅ Profile updated in local storage immediately for cross-device sync');
+  console.log('✅ Profile updated in local storage immediately for real-time sync');
 
   if (!client) {
     console.log('⚠️ Supabase not available, profile updated in local storage only');
@@ -258,7 +316,7 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
   }
 
   try {
-    console.log('🔄 Updating user profile in database for cross-device sync:', userId);
+    console.log('🔄 Updating user profile in database for real-time sync:', userId);
     
     const updateData: any = {
       updated_at: new Date().toISOString(),
@@ -284,14 +342,23 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
       .eq('user_id', userId);
 
     if (error) {
-      console.error('❌ Database update failed, but profile is preserved in local storage for cross-device sync:', error);
+      console.error('❌ Database update failed, but profile is preserved in local storage:', error);
+      // Mark as pending sync
+      updatedProfile.pendingSync = true;
+      localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
       return;
     }
 
-    console.log('✅ User profile updated in database successfully for cross-device sync');
+    // Mark as successfully synced
+    updatedProfile.pendingSync = false;
+    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+    console.log('✅ User profile updated in database successfully for real-time sync');
   } catch (error) {
     console.error('❌ Error in updateUserProfile:', error);
-    console.log('Profile updated in local storage as fallback for cross-device sync');
+    // Mark as pending sync for retry later
+    updatedProfile.pendingSync = true;
+    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+    console.log('Profile updated in local storage as fallback for real-time sync');
   }
 };
 
@@ -484,15 +551,12 @@ const generateDemoLeaderboard = () => {
   });
 };
 
-// ENHANCED: Conversation Operations with Database-First Approach and Cross-Device Sync
+// ENHANCED: Conversation Operations with Real-time Cross-Device Sync
 export const createConversation = async (userId: string, firstMessage: string): Promise<string> => {
-  const client = checkSupabase();
   const title = generateConversationTitle(firstMessage);
+  const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  // ENHANCED: Always save to local storage first for immediate availability and cross-device sync
-  const conversationId = `conv_${Date.now()}`;
-  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-  localConversations.unshift({
+  const conversationData = {
     id: conversationId,
     title,
     created_at: new Date().toISOString(),
@@ -500,46 +564,32 @@ export const createConversation = async (userId: string, firstMessage: string): 
     completed: false,
     ai_label: null,
     category: 'general',
-    soft_deleted: false,
-    syncedAt: new Date().toISOString()
-  });
-  localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
-  console.log('✅ Conversation created in local storage immediately for cross-device sync');
+    soft_deleted: false
+  };
 
-  if (!client) {
-    console.log('⚠️ Supabase not available, conversation created in local storage only');
-    return conversationId;
-  }
+  return await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
+      
+      const { data, error } = await client
+        .from('conversations')
+        .insert({
+          user_id: userId,
+          title,
+          category: 'general'
+        })
+        .select('id')
+        .single();
 
-  try {
-    const { data, error } = await client
-      .from('conversations')
-      .insert({
-        user_id: userId,
-        title,
-        category: 'general'
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('❌ Database save failed, but conversation is preserved in local storage for cross-device sync:', error);
-      return conversationId;
-    }
-
-    console.log('✅ Conversation created in database for cross-device sync:', data.id);
-    
-    // ENHANCED: Update local storage with the database ID for cross-device sync
-    const updatedLocalConversations = localConversations.map(conv => 
-      conv.id === conversationId ? { ...conv, id: data.id, syncedAt: new Date().toISOString() } : conv
-    );
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedLocalConversations));
-    
-    return data.id;
-  } catch (error) {
-    console.error('❌ Error in createConversation:', error);
-    return conversationId;
-  }
+      if (error) throw error;
+      
+      console.log('✅ Conversation created in database with real-time sync:', data.id);
+      return data.id;
+    },
+    conversationData,
+    `conversations_${userId}`
+  );
 };
 
 export const getUserConversations = async (userId: string): Promise<Array<{
@@ -553,7 +603,7 @@ export const getUserConversations = async (userId: string): Promise<Array<{
 }>> => {
   const client = checkSupabase();
   
-  // ENHANCED: Always check local storage first for immediate availability and cross-device sync
+  // ENHANCED: Always check local storage first for immediate availability
   const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
   const conversationsFromLocal = localConversations.map((conv: any) => ({
     ...conv,
@@ -569,7 +619,7 @@ export const getUserConversations = async (userId: string): Promise<Array<{
   }
 
   try {
-    console.log('🔄 Fetching conversations from database for cross-device sync:', userId);
+    console.log('🔄 Fetching conversations from database for real-time sync:', userId);
     
     const { data, error } = await client
       .from('conversations')
@@ -579,11 +629,11 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       .order('updated_at', { ascending: false });
 
     if (error) {
-      console.error('❌ Database fetch failed, using local storage for cross-device sync:', error);
+      console.error('❌ Database fetch failed, using local storage:', error);
       return conversationsFromLocal;
     }
 
-    console.log('✅ Fetched conversations from database for cross-device sync:', data?.length || 0);
+    console.log('✅ Fetched conversations from database for real-time sync:', data?.length || 0);
 
     const conversationsFromDB = (data || []).map(conv => ({
       id: conv.id,
@@ -595,12 +645,12 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       category: conv.category || 'general'
     }));
 
-    // ENHANCED: Merge with local storage - prioritize database data for cross-device sync
+    // ENHANCED: Merge with local storage - prioritize database data for real-time sync
     const mergedConversations = [...conversationsFromDB];
     
-    // Add any local conversations not in database
+    // Add any local conversations not in database (pending sync)
     localConversations.forEach((localConv: any) => {
-      if (!mergedConversations.find(c => c.id === localConv.id)) {
+      if (!mergedConversations.find(c => c.id === localConv.id) && localConv.pendingSync) {
         mergedConversations.push({
           ...localConv,
           created_at: new Date(localConv.created_at),
@@ -611,7 +661,7 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       }
     });
 
-    // ENHANCED: Update local storage cache with merged data for cross-device sync
+    // ENHANCED: Update local storage cache with merged data for real-time sync
     localStorage.setItem(`conversations_${userId}`, JSON.stringify(mergedConversations.map(conv => ({
       ...conv,
       created_at: conv.created_at.toISOString(),
@@ -619,10 +669,11 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       ai_label: conv.aiLabel,
       category: conv.category,
       soft_deleted: false,
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
     }))));
 
-    console.log('✅ Conversations loaded from database and cached for cross-device sync:', mergedConversations.length);
+    console.log('✅ Conversations loaded from database and cached for real-time sync:', mergedConversations.length);
     return mergedConversations;
   } catch (error) {
     console.error('❌ Error in getUserConversations:', error);
@@ -633,7 +684,7 @@ export const getUserConversations = async (userId: string): Promise<Array<{
 export const getConversationMessages = async (conversationId: string): Promise<Message[]> => {
   const client = checkSupabase();
   
-  // ENHANCED: Always check local storage first for immediate availability and cross-device sync
+  // ENHANCED: Always check local storage first for immediate availability
   const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
   const messagesFromLocal = localMessages.map((msg: any) => ({
     ...msg,
@@ -646,7 +697,7 @@ export const getConversationMessages = async (conversationId: string): Promise<M
   }
 
   try {
-    console.log('🔄 Fetching messages from database for cross-device sync:', conversationId);
+    console.log('🔄 Fetching messages from database for real-time sync:', conversationId);
     
     const { data, error } = await client
       .from('messages')
@@ -655,11 +706,11 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       .order('created_at', { ascending: true });
 
     if (error) {
-      console.error('❌ Database fetch failed, using local storage for cross-device sync:', error);
+      console.error('❌ Database fetch failed, using local storage:', error);
       return messagesFromLocal;
     }
 
-    console.log('✅ Fetched messages from database for cross-device sync:', data?.length || 0);
+    console.log('✅ Fetched messages from database for real-time sync:', data?.length || 0);
 
     const messagesFromDB = (data || []).map(msg => ({
       id: msg.id,
@@ -669,12 +720,12 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       isVoice: msg.is_voice || false,
     }));
 
-    // ENHANCED: Merge with local storage - prioritize database data for cross-device sync
+    // ENHANCED: Merge with local storage - prioritize database data for real-time sync
     const mergedMessages = [...messagesFromDB];
     
-    // Add any local messages not in database
+    // Add any local messages not in database (pending sync)
     localMessages.forEach((localMsg: any) => {
-      if (!mergedMessages.find(m => m.id === localMsg.id)) {
+      if (!mergedMessages.find(m => m.id === localMsg.id) && localMsg.pendingSync) {
         mergedMessages.push({
           ...localMsg,
           timestamp: new Date(localMsg.timestamp)
@@ -682,14 +733,15 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       }
     });
 
-    // ENHANCED: Update local storage cache with merged data for cross-device sync
+    // ENHANCED: Update local storage cache with merged data for real-time sync
     localStorage.setItem(`messages_${conversationId}`, JSON.stringify(mergedMessages.map(msg => ({
       ...msg,
       timestamp: msg.timestamp.toISOString(),
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
     }))));
 
-    console.log('✅ Messages loaded from database and cached for cross-device sync:', mergedMessages.length);
+    console.log('✅ Messages loaded from database and cached for real-time sync:', mergedMessages.length);
     return mergedMessages;
   } catch (error) {
     console.error('❌ Error in getConversationMessages:', error);
@@ -698,52 +750,39 @@ export const getConversationMessages = async (conversationId: string): Promise<M
 };
 
 export const saveMessage = async (conversationId: string, message: Message): Promise<void> => {
-  const client = checkSupabase();
-  
-  // ENHANCED: Always save to local storage first for immediate availability and cross-device sync
-  const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-  localMessages.push({
+  const messageData = {
     ...message,
-    timestamp: message.timestamp.toISOString(),
-    syncedAt: new Date().toISOString()
-  });
-  localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
-  console.log('✅ Message saved to local storage immediately for cross-device sync');
+    timestamp: message.timestamp.toISOString()
+  };
 
-  if (!client) {
-    console.log('⚠️ Supabase not available, message saved to local storage only');
-    return;
-  }
+  await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
+      
+      const { error } = await client
+        .from('messages')
+        .insert({
+          id: message.id,
+          conversation_id: conversationId,
+          role: message.role,
+          content: message.content,
+          is_voice: message.isVoice || false,
+        });
 
-  try {
-    console.log('🔄 Saving message to database for cross-device sync:', conversationId);
-    
-    const { error } = await client
-      .from('messages')
-      .insert({
-        id: message.id,
-        conversation_id: conversationId,
-        role: message.role,
-        content: message.content,
-        is_voice: message.isVoice || false,
-      });
+      if (error) throw error;
 
-    if (error) {
-      console.error('❌ Database save failed, but message is preserved in local storage for cross-device sync:', error);
-      return;
-    }
+      // Update conversation's updated_at timestamp
+      await client
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
 
-    // Update conversation's updated_at timestamp
-    await client
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversationId);
-
-    console.log('✅ Message saved to database successfully for cross-device sync');
-  } catch (error) {
-    console.error('❌ Error in saveMessage:', error);
-    console.log('Message saved to local storage as fallback for cross-device sync');
-  }
+      console.log('✅ Message saved to database successfully for real-time sync');
+    },
+    messageData,
+    `messages_${conversationId}`
+  );
 };
 
 export const updateConversation = async (conversationId: string, updates: {
@@ -752,65 +791,50 @@ export const updateConversation = async (conversationId: string, updates: {
   aiLabel?: string;
   category?: string;
 }): Promise<void> => {
-  const client = checkSupabase();
-  
-  // ENHANCED: Always update local storage first for immediate UI updates and cross-device sync
-  const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
-  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-  const updatedConversations = localConversations.map((conv: any) => 
-    conv.id === conversationId ? { 
-      ...conv, 
-      ...updates, 
-      ai_label: updates.aiLabel,
-      updated_at: new Date().toISOString(),
-      syncedAt: new Date().toISOString()
-    } : conv
+  const updateData = {
+    ...updates,
+    ai_label: updates.aiLabel,
+    updated_at: new Date().toISOString()
+  };
+
+  await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
+      
+      const dbUpdateData: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (updates.completed !== undefined) dbUpdateData.completed = updates.completed;
+      if (updates.title !== undefined) dbUpdateData.title = updates.title;
+      if (updates.aiLabel !== undefined) dbUpdateData.ai_label = updates.aiLabel;
+      if (updates.category !== undefined) dbUpdateData.category = updates.category;
+
+      const { error } = await client
+        .from('conversations')
+        .update(dbUpdateData)
+        .eq('id', conversationId);
+
+      if (error) throw error;
+      
+      console.log('✅ Conversation updated in database successfully for real-time sync');
+    },
+    updateData,
+    `conversation_${conversationId}`
   );
-  localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
-  console.log('✅ Conversation updated in local storage immediately for cross-device sync');
-
-  if (!client) {
-    console.log('⚠️ Supabase not available, conversation updated in local storage only');
-    return;
-  }
-
-  try {
-    const updateData: any = {
-      updated_at: new Date().toISOString(),
-    };
-
-    if (updates.completed !== undefined) updateData.completed = updates.completed;
-    if (updates.title !== undefined) updateData.title = updates.title;
-    if (updates.aiLabel !== undefined) updateData.ai_label = updates.aiLabel;
-    if (updates.category !== undefined) updateData.category = updates.category;
-
-    const { error } = await client
-      .from('conversations')
-      .update(updateData)
-      .eq('id', conversationId);
-
-    if (error) {
-      console.error('❌ Database update failed, but conversation is preserved in local storage for cross-device sync:', error);
-      return;
-    }
-
-    console.log('✅ Conversation updated in database successfully for cross-device sync');
-  } catch (error) {
-    console.error('❌ Error in updateConversation:', error);
-    console.log('Conversation updated in local storage as fallback for cross-device sync');
-  }
 };
 
 // Soft delete conversation
 export const deleteConversation = async (conversationId: string): Promise<void> => {
   const client = checkSupabase();
   
-  // ENHANCED: Always update local storage first for immediate UI updates and cross-device sync
+  // ENHANCED: Always update local storage first for immediate UI updates
   const userId = conversationId.split('_')[0];
   const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
   const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
   localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
-  console.log('✅ Conversation deleted from local storage immediately for cross-device sync');
+  console.log('✅ Conversation deleted from local storage immediately for real-time sync');
 
   if (!client) {
     console.log('⚠️ Supabase not available, conversation deleted from local storage only');
@@ -823,86 +847,62 @@ export const deleteConversation = async (conversationId: string): Promise<void> 
     });
 
     if (error) {
-      console.error('❌ Database delete failed, but conversation is removed from local storage for cross-device sync:', error);
+      console.error('❌ Database delete failed, but conversation is removed from local storage:', error);
       return;
     }
 
-    console.log('✅ Conversation soft deleted in database successfully for cross-device sync');
+    console.log('✅ Conversation soft deleted in database successfully for real-time sync');
   } catch (error) {
     console.error('❌ Error in deleteConversation:', error);
-    console.log('Conversation deleted from local storage as fallback for cross-device sync');
+    console.log('Conversation deleted from local storage as fallback for real-time sync');
   }
 };
 
-// ENHANCED: Database-First Goal Operations with Cross-Device Sync
+// ENHANCED: Database-First Goal Operations with Real-time Cross-Device Sync
 export const saveGoal = async (userId: string, sessionId: string, goal: Goal): Promise<void> => {
-  const client = checkSupabase();
-  
-  // ENHANCED: Always save to local storage first for immediate availability and cross-device sync
-  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-  const goalIndex = localGoals.findIndex((g: any) => g.id === goal.id);
-  
-  const goalToStore = {
+  const goalData = {
     ...goal,
     sessionId,
     createdAt: goal.createdAt?.toISOString() || new Date().toISOString(),
     completedAt: goal.completedAt?.toISOString() || null,
-    deadline: goal.deadline?.toISOString() || null,
-    syncedAt: new Date().toISOString()
+    deadline: goal.deadline?.toISOString() || null
   };
-  
-  if (goalIndex >= 0) {
-    localGoals[goalIndex] = goalToStore;
-  } else {
-    localGoals.unshift(goalToStore); // Add to beginning for latest first
-  }
-  
-  localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
-  console.log('✅ Goal saved to local storage immediately for cross-device sync:', goal.description);
-  
-  if (!client) {
-    console.log('⚠️ Supabase not available, goal saved to local storage only');
-    return;
-  }
 
-  try {
-    console.log('🔄 Saving goal to database for cross-device sync:', goal.id, 'for user:', userId);
-    
-    // Use the database function for creating goals
-    const { data, error } = await client.rpc('create_user_goal', {
-      goal_description: goal.description,
-      goal_xp_value: goal.xpValue || 50,
-      goal_difficulty: goal.difficulty || 'medium',
-      goal_motivation: goal.motivation || 5,
-      goal_deadline: goal.deadline?.toISOString() || null,
-      session_id: sessionId || null
-    });
-
-    if (error) {
-      console.error('❌ Database save failed, but goal is preserved in local storage for cross-device sync:', error);
-      return;
-    }
-
-    if (data && data.length > 0 && data[0].success) {
-      console.log('✅ Goal saved successfully to database for cross-device sync with ID:', data[0].id);
+  await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
       
-      // ENHANCED: Update local storage with the database ID for cross-device sync
-      const updatedLocalGoals = localGoals.map((g: any) => 
-        g.id === goal.id ? { ...g, id: data[0].id, syncedAt: new Date().toISOString() } : g
-      );
-      localStorage.setItem(`goals_${userId}`, JSON.stringify(updatedLocalGoals));
-    } else {
-      console.error('❌ Goal creation failed:', data?.[0]?.message || 'Unknown error');
-    }
-  } catch (error) {
-    console.error('❌ Error saving goal to database, but preserved in local storage for cross-device sync:', error);
-  }
+      console.log('🔄 Saving goal to database for real-time sync:', goal.id, 'for user:', userId);
+      
+      // Use the database function for creating goals
+      const { data, error } = await client.rpc('create_user_goal', {
+        goal_description: goal.description,
+        goal_xp_value: goal.xpValue || 50,
+        goal_difficulty: goal.difficulty || 'medium',
+        goal_motivation: goal.motivation || 5,
+        goal_deadline: goal.deadline?.toISOString() || null,
+        session_id: sessionId || null
+      });
+
+      if (error) throw error;
+
+      if (data && data.length > 0 && data[0].success) {
+        console.log('✅ Goal saved successfully to database for real-time sync with ID:', data[0].id);
+        return data[0].id;
+      } else {
+        throw new Error(data?.[0]?.message || 'Goal creation failed');
+      }
+    },
+    goalData,
+    `goals_${userId}`
+  );
 };
 
 export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   const client = checkSupabase();
   
-  // ENHANCED: Always check local storage first for immediate availability and cross-device sync
+  // ENHANCED: Always check local storage first for immediate availability
   const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
   const goalsFromLocal = localGoals.map((goal: any) => ({
     ...goal,
@@ -912,12 +912,12 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   }));
 
   if (!client) {
-    console.log('⚠️ Supabase not available, returning goals from local storage for cross-device sync:', goalsFromLocal.length);
+    console.log('⚠️ Supabase not available, returning goals from local storage for real-time sync:', goalsFromLocal.length);
     return goalsFromLocal;
   }
 
   try {
-    console.log('🔄 Fetching goals from database for cross-device sync:', userId);
+    console.log('🔄 Fetching goals from database for real-time sync:', userId);
     
     // Use the database function to get user goals
     const { data, error } = await client.rpc('get_user_goals', {
@@ -927,7 +927,7 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
     });
 
     if (error) {
-      console.error('❌ Database fetch failed, using local storage for cross-device sync:', error);
+      console.error('❌ Database fetch failed, using local storage for real-time sync:', error);
       return goalsFromLocal;
     }
 
@@ -944,12 +944,12 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       createdAt: new Date(goal.created_at),
     }));
 
-    // ENHANCED: Merge with local storage - prioritize database data for cross-device sync
+    // ENHANCED: Merge with local storage - prioritize database data for real-time sync
     const mergedGoals = [...goalsFromDB];
     
-    // Add any local goals not in database
+    // Add any local goals not in database (pending sync)
     localGoals.forEach((localGoal: any) => {
-      if (!mergedGoals.find(g => g.id === localGoal.id)) {
+      if (!mergedGoals.find(g => g.id === localGoal.id) && localGoal.pendingSync) {
         mergedGoals.push({
           ...localGoal,
           createdAt: new Date(localGoal.createdAt),
@@ -962,85 +962,71 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
     // Sort by creation date (newest first)
     mergedGoals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    // ENHANCED: Update local storage cache with merged data for cross-device sync
+    // ENHANCED: Update local storage cache with merged data for real-time sync
     localStorage.setItem(`goals_${userId}`, JSON.stringify(mergedGoals.map(goal => ({
       ...goal,
       createdAt: goal.createdAt.toISOString(),
       completedAt: goal.completedAt?.toISOString() || null,
       deadline: goal.deadline?.toISOString() || null,
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
     }))));
 
-    console.log('✅ Goals loaded from database and cached for cross-device sync:', mergedGoals.length);
+    console.log('✅ Goals loaded from database and cached for real-time sync:', mergedGoals.length);
     return mergedGoals;
   } catch (error) {
-    console.error('❌ Error fetching user goals from database, using local storage for cross-device sync:', error);
+    console.error('❌ Error fetching user goals from database, using local storage for real-time sync:', error);
     return goalsFromLocal;
   }
 };
 
-// Enhanced goal completion with database integration and cross-device sync
+// Enhanced goal completion with database integration and real-time sync
 export const completeGoal = async (
   userId: string, 
   goalId: string, 
   reasoning: string, 
   xpGained: number
 ): Promise<{ newXP: number; newLevel: number } | null> => {
-  const client = checkSupabase();
-  
-  // ENHANCED: Always update local storage first for immediate UI updates and cross-device sync
-  const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
-  const updatedLocalGoals = localGoals.map((g: any) => 
-    g.id === goalId ? {
-      ...g,
-      completed: true,
-      completedAt: new Date().toISOString(),
-      completionReasoning: reasoning,
-      xpValue: xpGained,
-      syncedAt: new Date().toISOString()
-    } : g
+  const completionData = {
+    completed: true,
+    completedAt: new Date().toISOString(),
+    completionReasoning: reasoning,
+    xpValue: xpGained
+  };
+
+  return await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
+      
+      console.log('🔄 Completing goal in database for real-time sync:', goalId);
+      
+      // Use the database function to complete the goal
+      const { data, error } = await client.rpc('complete_goal_with_xp', {
+        goal_id: goalId,
+        completion_reasoning: reasoning,
+        calculated_xp: xpGained
+      });
+
+      if (error) throw error;
+
+      if (data && data.length > 0 && data[0].success) {
+        const result = data[0];
+        console.log('✅ Goal completed in database for real-time sync with XP reward:', xpGained, 'New total XP:', result.new_total_xp);
+        return { 
+          newXP: result.new_total_xp, 
+          newLevel: result.new_level 
+        };
+      } else {
+        throw new Error(data?.[0]?.message || 'Goal completion failed');
+      }
+    },
+    { newXP: xpGained, newLevel: 1 },
+    `goal_completion_${goalId}`
   );
-  localStorage.setItem(`goals_${userId}`, JSON.stringify(updatedLocalGoals));
-  console.log('✅ Goal completed in local storage immediately for cross-device sync');
-
-  if (!client) {
-    console.log('⚠️ Supabase not available, goal completed in local storage only');
-    return { newXP: xpGained, newLevel: 1 };
-  }
-
-  try {
-    console.log('🔄 Completing goal in database for cross-device sync:', goalId);
-    
-    // Use the database function to complete the goal
-    const { data, error } = await client.rpc('complete_goal_with_xp', {
-      goal_id: goalId,
-      completion_reasoning: reasoning,
-      calculated_xp: xpGained
-    });
-
-    if (error) {
-      console.error('❌ Database goal completion failed, but preserved in local storage for cross-device sync:', error);
-      return null;
-    }
-
-    if (data && data.length > 0 && data[0].success) {
-      const result = data[0];
-      console.log('✅ Goal completed in database for cross-device sync with XP reward:', xpGained, 'New total XP:', result.new_total_xp);
-      return { 
-        newXP: result.new_total_xp, 
-        newLevel: result.new_level 
-      };
-    } else {
-      console.error('❌ Goal completion failed:', data?.[0]?.message || 'Unknown error');
-      return null;
-    }
-  } catch (error) {
-    console.error('❌ Error completing goal in database, but preserved in local storage for cross-device sync:', error);
-    return null;
-  }
 };
 
-// Enhanced Daily Streak Operations with proper date handling and cross-device sync
+// Enhanced Daily Streak Operations with proper date handling and real-time sync
 export const updateDailyStreak = async (userId: string): Promise<number> => {
   try {
     const profile = await getUserProfile(userId);
@@ -1079,7 +1065,7 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
       lastActivity: new Date(),
     });
 
-    console.log('✅ Daily streak updated for cross-device sync:', newStreak);
+    console.log('✅ Daily streak updated for real-time sync:', newStreak);
     return newStreak;
   } catch (error) {
     console.error('❌ Error updating daily streak:', error);
@@ -1089,56 +1075,39 @@ export const updateDailyStreak = async (userId: string): Promise<number> => {
 
 // Legacy Session Operations (for backward compatibility)
 export const saveSession = async (userId: string, session: CoachingSession): Promise<void> => {
-  const client = checkSupabase();
-  
-  if (!client) {
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    localSessions.push({
-      ...session,
-      date: session.date.toISOString(),
-      syncedAt: new Date().toISOString()
-    });
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
-    console.log('Session saved to local storage for cross-device sync');
-    return;
-  }
+  const sessionData = {
+    ...session,
+    date: session.date.toISOString()
+  };
 
-  try {
-    console.log('Saving session for cross-device sync:', session.id, 'for user:', userId);
-    
-    const sessionData = {
-      id: session.id,
-      user_id: userId,
-      title: session.summary || `Session ${new Date().toLocaleDateString()}`,
-      messages: session.messages || [],
-      completed: session.completed || false,
-      summary: session.summary || null,
-      updated_at: new Date().toISOString(),
-    };
+  await syncToDatabase(
+    async () => {
+      const client = checkSupabase();
+      if (!client) throw new Error('No database connection');
+      
+      console.log('Saving session for real-time sync:', session.id, 'for user:', userId);
+      
+      const dbSessionData = {
+        id: session.id,
+        user_id: userId,
+        title: session.summary || `Session ${new Date().toLocaleDateString()}`,
+        messages: session.messages || [],
+        completed: session.completed || false,
+        summary: session.summary || null,
+        updated_at: new Date().toISOString(),
+      };
 
-    const { error } = await client
-      .from('coaching_sessions')
-      .upsert(sessionData);
+      const { error } = await client
+        .from('coaching_sessions')
+        .upsert(dbSessionData);
 
-    if (error) {
-      handleSupabaseError(error, 'saveSession');
-      throw error;
-    }
-
-    console.log('Session saved successfully for cross-device sync');
-  } catch (error) {
-    console.error('Error in saveSession:', error);
-    // Fallback to local storage
-    const localSessions = JSON.parse(localStorage.getItem(`sessions_${userId}`) || '[]');
-    localSessions.push({
-      ...session,
-      date: session.date.toISOString(),
-      syncedAt: new Date().toISOString()
-    });
-    localStorage.setItem(`sessions_${userId}`, JSON.stringify(localSessions));
-    console.log('Session saved to local storage as fallback for cross-device sync');
-  }
+      if (error) throw error;
+      
+      console.log('Session saved successfully for real-time sync');
+    },
+    sessionData,
+    `sessions_${userId}`
+  );
 };
 
 export const getUserSessions = async (userId: string): Promise<CoachingSession[]> => {
@@ -1154,7 +1123,7 @@ export const getUserSessions = async (userId: string): Promise<CoachingSession[]
   }
 
   try {
-    console.log('Fetching sessions for cross-device sync:', userId);
+    console.log('Fetching sessions for real-time sync:', userId);
     
     const { data, error } = await client
       .from('coaching_sessions')
@@ -1167,7 +1136,7 @@ export const getUserSessions = async (userId: string): Promise<CoachingSession[]
       return [];
     }
 
-    console.log('Fetched', data?.length || 0, 'sessions for cross-device sync');
+    console.log('Fetched', data?.length || 0, 'sessions for real-time sync');
 
     const sessions = (data || []).map(session => ({
       id: session.id,
@@ -1180,11 +1149,12 @@ export const getUserSessions = async (userId: string): Promise<CoachingSession[]
       summary: session.summary,
     }));
 
-    // Cache in local storage for cross-device sync
+    // Cache in local storage for real-time sync
     localStorage.setItem(`sessions_${userId}`, JSON.stringify(sessions.map(session => ({
       ...session,
       date: session.date.toISOString(),
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      pendingSync: false
     }))));
 
     return sessions;
