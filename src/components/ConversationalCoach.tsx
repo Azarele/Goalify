@@ -50,8 +50,9 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false); // Start closed
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(false); // Start closed
+  // FIXED: Sidebars start closed and only show on desktop
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [currentlyTyping, setCurrentlyTyping] = useState<string | null>(null);
   
   // Session state
@@ -91,7 +92,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // CRITICAL: Real-time goal count updates
+  // CRITICAL: Real-time goal count updates from database
   useEffect(() => {
     if (user && hasStartedSession) {
       const currentGoalCount = goals.length;
@@ -634,20 +635,25 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   return (
     <div className="flex h-full relative">
-      <SessionSidebar 
-        isOpen={leftSidebarOpen}
-        onClose={() => setLeftSidebarOpen(false)}
-        currentConversationId={currentConversationId}
-        userProfile={userProfile}
-        onConversationSelect={handleConversationSelect}
-        onNewConversation={handleNewConversation}
-      />
+      {/* FIXED: Only show sidebars on desktop (lg and up) */}
+      <div className="hidden lg:block">
+        <SessionSidebar 
+          isOpen={leftSidebarOpen}
+          onClose={() => setLeftSidebarOpen(false)}
+          currentConversationId={currentConversationId}
+          userProfile={userProfile}
+          onConversationSelect={handleConversationSelect}
+          onNewConversation={handleNewConversation}
+        />
+      </div>
 
-      <GoalSidebar 
-        isOpen={rightSidebarOpen}
-        onClose={() => setRightSidebarOpen(false)}
-        userProfile={userProfile}
-      />
+      <div className="hidden lg:block">
+        <GoalSidebar 
+          isOpen={rightSidebarOpen}
+          onClose={() => setRightSidebarOpen(false)}
+          userProfile={userProfile}
+        />
+      </div>
 
       <div className="flex-1 flex flex-col max-w-4xl mx-auto relative">
         <div className="bg-gradient-to-r from-slate-800/90 to-purple-800/90 backdrop-blur-sm border-b border-purple-500/20 p-4 relative overflow-hidden">
@@ -655,13 +661,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
           
           <div className="relative flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
-                title="Toggle conversation history"
-              >
-                <Clock className="w-5 h-5 text-purple-300 group-hover:text-white" />
-              </button>
+              {/* FIXED: Only show sidebar toggles on desktop */}
+              <div className="hidden lg:flex items-center space-x-2">
+                <button
+                  onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+                  className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                  title="Toggle conversation history"
+                >
+                  <Clock className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                </button>
+              </div>
               
               <div className="relative">
                 <div className="w-12 h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
@@ -713,13 +722,16 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </button>
               )}
               
-              <button
-                onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-                className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
-                title="Toggle goal tracking"
-              >
-                <Target className="w-5 h-5 text-purple-300 group-hover:text-white" />
-              </button>
+              {/* FIXED: Only show goal sidebar toggle on desktop */}
+              <div className="hidden lg:block">
+                <button
+                  onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+                  className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-all duration-300 group"
+                  title="Toggle goal tracking"
+                >
+                  <Target className="w-5 h-5 text-purple-300 group-hover:text-white" />
+                </button>
+              </div>
               
               {isPlayingAudio && (
                 <VoiceIndicator />

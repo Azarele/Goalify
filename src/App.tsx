@@ -35,7 +35,7 @@ function MainApp() {
     }
   }, [user]);
 
-  // Reload goals when user profile changes (for XP updates)
+  // Reload goals and profile when user changes
   useEffect(() => {
     if (user && userProfile) {
       loadGoals();

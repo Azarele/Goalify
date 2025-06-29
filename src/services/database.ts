@@ -46,12 +46,12 @@ const handleSupabaseError = (error: any, operation: string) => {
   throw error;
 };
 
-// User Profile Operations
+// ENHANCED: User Profile Operations with Database-First Approach
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   const client = checkSupabase();
   
   if (!client) {
-    // Fallback to local storage
+    // Fallback to local storage only if Supabase is not available
     const localProfile = localStorage.getItem(`profile_${userId}`);
     if (localProfile) {
       const parsed = JSON.parse(localProfile);
@@ -64,7 +64,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
   }
 
   try {
-    console.log('Fetching user profile for:', userId);
+    console.log('🔄 Fetching user profile from database for:', userId);
     
     const { data, error } = await client
       .from('user_profiles')
@@ -86,7 +86,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       return null;
     }
 
-    console.log('User profile loaded successfully:', data.id);
+    console.log('✅ User profile loaded from database:', data.id);
 
     const profile = {
       id: data.id,
@@ -106,7 +106,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
       achievements: [],
     };
 
-    // Cache in local storage
+    // Cache in local storage as backup
     localStorage.setItem(`profile_${userId}`, JSON.stringify({
       ...profile,
       lastActivity: profile.lastActivity?.toISOString()
@@ -114,8 +114,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 
     return profile;
   } catch (error) {
-    console.error('Error in getUserProfile:', error);
-    // Fallback to local storage
+    console.error('❌ Error in getUserProfile:', error);
+    // Fallback to local storage only if database fails
     const localProfile = localStorage.getItem(`profile_${userId}`);
     if (localProfile) {
       const parsed = JSON.parse(localProfile);
@@ -150,7 +150,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
   };
 
   if (!client) {
-    // Store in local storage
+    // Store in local storage only if Supabase is not available
     localStorage.setItem(`profile_${userId}`, JSON.stringify({
       ...defaultProfile,
       lastActivity: defaultProfile.lastActivity.toISOString()
@@ -159,7 +159,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
   }
 
   try {
-    console.log('Creating user profile for:', userId, 'with name:', name);
+    console.log('🔄 Creating user profile in database for:', userId, 'with name:', name);
     
     const profileData = {
       user_id: userId,
@@ -193,7 +193,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
       throw error;
     }
 
-    console.log('User profile created successfully:', data.id);
+    console.log('✅ User profile created in database:', data.id);
 
     const profile = {
       id: data.id,
@@ -213,7 +213,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
       achievements: [],
     };
 
-    // Cache in local storage
+    // Cache in local storage as backup
     localStorage.setItem(`profile_${userId}`, JSON.stringify({
       ...profile,
       lastActivity: profile.lastActivity.toISOString()
@@ -224,7 +224,7 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
 
     return profile;
   } catch (error) {
-    console.error('Error in createUserProfile:', error);
+    console.error('❌ Error in createUserProfile:', error);
     // Fallback to local storage
     localStorage.setItem(`profile_${userId}`, JSON.stringify({
       ...defaultProfile,
@@ -237,21 +237,23 @@ export const createUserProfile = async (userId: string, name?: string): Promise<
 export const updateUserProfile = async (userId: string, updates: Partial<UserProfile>): Promise<void> => {
   const client = checkSupabase();
   
+  // Always update local storage first for immediate UI updates
+  const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
+  const updatedProfile = { 
+    ...localProfile, 
+    ...updates,
+    lastActivity: updates.lastActivity?.toISOString() || localProfile.lastActivity
+  };
+  localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+  console.log('✅ Profile updated in local storage immediately');
+
   if (!client) {
-    // Fallback to local storage
-    const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
-    const updatedProfile = { 
-      ...localProfile, 
-      ...updates,
-      lastActivity: updates.lastActivity?.toISOString() || localProfile.lastActivity
-    };
-    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
-    console.log('Profile updated in local storage');
+    console.log('⚠️ Supabase not available, profile updated in local storage only');
     return;
   }
 
   try {
-    console.log('Updating user profile for:', userId);
+    console.log('🔄 Updating user profile in database for:', userId);
     
     const updateData: any = {
       updated_at: new Date().toISOString(),
@@ -277,30 +279,13 @@ export const updateUserProfile = async (userId: string, updates: Partial<UserPro
       .eq('user_id', userId);
 
     if (error) {
-      handleSupabaseError(error, 'updateUserProfile');
-      throw error;
+      console.error('❌ Database update failed, but profile is preserved in local storage:', error);
+      return;
     }
 
-    console.log('User profile updated successfully');
-    
-    // Update local storage cache
-    const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
-    const updatedProfile = { 
-      ...localProfile, 
-      ...updates,
-      lastActivity: updates.lastActivity?.toISOString() || localProfile.lastActivity
-    };
-    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+    console.log('✅ User profile updated in database successfully');
   } catch (error) {
-    console.error('Error in updateUserProfile:', error);
-    // Fallback to local storage for demo mode
-    const localProfile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
-    const updatedProfile = { 
-      ...localProfile, 
-      ...updates,
-      lastActivity: updates.lastActivity?.toISOString() || localProfile.lastActivity
-    };
-    localStorage.setItem(`profile_${userId}`, JSON.stringify(updatedProfile));
+    console.error('❌ Error in updateUserProfile:', error);
     console.log('Profile updated in local storage as fallback');
   }
 };
@@ -326,14 +311,14 @@ export const getGlobalLeaderboard = async (sortBy: 'xp' | 'goals' | 'streak' = '
   }
 
   try {
-    console.log('Fetching real global leaderboard, sorted by:', sortBy);
+    console.log('🔄 Fetching real global leaderboard, sorted by:', sortBy);
     
     const { data, error } = await client.rpc('get_global_leaderboard', { 
       limit_count: limit 
     });
 
     if (error) {
-      console.error('Error fetching leaderboard:', error);
+      console.error('❌ Error fetching leaderboard:', error);
       return generateDemoLeaderboard();
     }
 
@@ -379,10 +364,10 @@ export const getGlobalLeaderboard = async (sortBy: 'xp' | 'goals' | 'streak' = '
       rank: index + 1
     }));
 
-    console.log('Real leaderboard loaded:', rankedLeaderboard.length, 'users');
+    console.log('✅ Real leaderboard loaded:', rankedLeaderboard.length, 'users');
     return rankedLeaderboard;
   } catch (error) {
-    console.error('Error in getGlobalLeaderboard:', error);
+    console.error('❌ Error in getGlobalLeaderboard:', error);
     return generateDemoLeaderboard();
   }
 };
@@ -411,7 +396,7 @@ export const getUserRank = async (userId: string): Promise<{
     });
 
     if (error) {
-      console.error('Error fetching user rank:', error);
+      console.error('❌ Error fetching user rank:', error);
       return null;
     }
 
@@ -427,7 +412,7 @@ export const getUserRank = async (userId: string): Promise<{
       totalUsers: rankData.total_users || 0
     };
   } catch (error) {
-    console.error('Error in getUserRank:', error);
+    console.error('❌ Error in getUserRank:', error);
     return null;
   }
 };
@@ -451,12 +436,12 @@ export const initializeUserStats = async (userId: string): Promise<void> => {
       });
 
     if (error && error.code !== '23505') { // Ignore duplicate key errors
-      console.error('Error initializing user stats:', error);
+      console.error('❌ Error initializing user stats:', error);
     } else {
-      console.log('User stats initialized for:', userId);
+      console.log('✅ User stats initialized for:', userId);
     }
   } catch (error) {
-    console.error('Error in initializeUserStats:', error);
+    console.error('❌ Error in initializeUserStats:', error);
   }
 };
 
@@ -494,26 +479,29 @@ const generateDemoLeaderboard = () => {
   });
 };
 
-// Conversation Operations
+// ENHANCED: Conversation Operations with Database-First Approach
 export const createConversation = async (userId: string, firstMessage: string): Promise<string> => {
   const client = checkSupabase();
   const title = generateConversationTitle(firstMessage);
   
+  // Always save to local storage first for immediate availability
+  const conversationId = `conv_${Date.now()}`;
+  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+  localConversations.unshift({
+    id: conversationId,
+    title,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    completed: false,
+    ai_label: null,
+    category: 'general',
+    soft_deleted: false
+  });
+  localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
+  console.log('✅ Conversation created in local storage immediately');
+
   if (!client) {
-    // Fallback to local storage
-    const conversationId = `conv_${Date.now()}`;
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    localConversations.push({
-      id: conversationId,
-      title,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      completed: false,
-      ai_label: null,
-      category: 'general',
-      soft_deleted: false
-    });
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
+    console.log('⚠️ Supabase not available, conversation created in local storage only');
     return conversationId;
   }
 
@@ -529,28 +517,21 @@ export const createConversation = async (userId: string, firstMessage: string): 
       .single();
 
     if (error) {
-      handleSupabaseError(error, 'createConversation');
-      throw error;
+      console.error('❌ Database save failed, but conversation is preserved in local storage:', error);
+      return conversationId;
     }
 
-    console.log('Conversation created successfully:', data.id);
+    console.log('✅ Conversation created in database:', data.id);
+    
+    // Update local storage with the database ID
+    const updatedLocalConversations = localConversations.map(conv => 
+      conv.id === conversationId ? { ...conv, id: data.id } : conv
+    );
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedLocalConversations));
+    
     return data.id;
   } catch (error) {
-    console.error('Error in createConversation:', error);
-    // Fallback to local storage
-    const conversationId = `conv_${Date.now()}`;
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    localConversations.push({
-      id: conversationId,
-      title: generateConversationTitle(firstMessage),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      completed: false,
-      ai_label: null,
-      category: 'general',
-      soft_deleted: false
-    });
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(localConversations));
+    console.error('❌ Error in createConversation:', error);
     return conversationId;
   }
 };
@@ -566,20 +547,23 @@ export const getUserConversations = async (userId: string): Promise<Array<{
 }>> => {
   const client = checkSupabase();
   
+  // Always check local storage first for immediate availability
+  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+  const conversationsFromLocal = localConversations.map((conv: any) => ({
+    ...conv,
+    created_at: new Date(conv.created_at),
+    updated_at: new Date(conv.updated_at),
+    aiLabel: conv.ai_label,
+    category: conv.category || 'general'
+  }));
+
   if (!client) {
-    // Fallback to local storage
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    return localConversations.map((conv: any) => ({
-      ...conv,
-      created_at: new Date(conv.created_at),
-      updated_at: new Date(conv.updated_at),
-      aiLabel: conv.ai_label,
-      category: conv.category || 'general'
-    }));
+    console.log('⚠️ Supabase not available, returning conversations from local storage:', conversationsFromLocal.length);
+    return conversationsFromLocal;
   }
 
   try {
-    console.log('Fetching conversations for user:', userId);
+    console.log('🔄 Fetching conversations from database for user:', userId);
     
     const { data, error } = await client
       .from('conversations')
@@ -589,13 +573,13 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       .order('updated_at', { ascending: false });
 
     if (error) {
-      handleSupabaseError(error, 'getUserConversations');
-      return [];
+      console.error('❌ Database fetch failed, using local storage:', error);
+      return conversationsFromLocal;
     }
 
-    console.log('Fetched conversations:', data?.length || 0);
+    console.log('✅ Fetched conversations from database:', data?.length || 0);
 
-    const conversations = (data || []).map(conv => ({
+    const conversationsFromDB = (data || []).map(conv => ({
       id: conv.id,
       title: conv.title,
       created_at: new Date(conv.created_at),
@@ -605,8 +589,24 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       category: conv.category || 'general'
     }));
 
-    // Cache in local storage
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(conversations.map(conv => ({
+    // Merge with local storage - prioritize database data
+    const mergedConversations = [...conversationsFromDB];
+    
+    // Add any local conversations not in database
+    localConversations.forEach((localConv: any) => {
+      if (!mergedConversations.find(c => c.id === localConv.id)) {
+        mergedConversations.push({
+          ...localConv,
+          created_at: new Date(localConv.created_at),
+          updated_at: new Date(localConv.updated_at),
+          aiLabel: localConv.ai_label,
+          category: localConv.category || 'general'
+        });
+      }
+    });
+
+    // Update local storage cache with merged data
+    localStorage.setItem(`conversations_${userId}`, JSON.stringify(mergedConversations.map(conv => ({
       ...conv,
       created_at: conv.created_at.toISOString(),
       updated_at: conv.updated_at.toISOString(),
@@ -615,35 +615,31 @@ export const getUserConversations = async (userId: string): Promise<Array<{
       soft_deleted: false
     }))));
 
-    return conversations;
+    console.log('✅ Conversations loaded from database and cached:', mergedConversations.length);
+    return mergedConversations;
   } catch (error) {
-    console.error('Error in getUserConversations:', error);
-    // Fallback to local storage
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    return localConversations.map((conv: any) => ({
-      ...conv,
-      created_at: new Date(conv.created_at),
-      updated_at: new Date(conv.updated_at),
-      aiLabel: conv.ai_label,
-      category: conv.category || 'general'
-    }));
+    console.error('❌ Error in getUserConversations:', error);
+    return conversationsFromLocal;
   }
 };
 
 export const getConversationMessages = async (conversationId: string): Promise<Message[]> => {
   const client = checkSupabase();
   
+  // Always check local storage first for immediate availability
+  const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
+  const messagesFromLocal = localMessages.map((msg: any) => ({
+    ...msg,
+    timestamp: new Date(msg.timestamp)
+  }));
+
   if (!client) {
-    // Fallback to local storage
-    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-    return localMessages.map((msg: any) => ({
-      ...msg,
-      timestamp: new Date(msg.timestamp)
-    }));
+    console.log('⚠️ Supabase not available, returning messages from local storage:', messagesFromLocal.length);
+    return messagesFromLocal;
   }
 
   try {
-    console.log('Fetching messages for conversation:', conversationId);
+    console.log('🔄 Fetching messages from database for conversation:', conversationId);
     
     const { data, error } = await client
       .from('messages')
@@ -652,13 +648,13 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       .order('created_at', { ascending: true });
 
     if (error) {
-      handleSupabaseError(error, 'getConversationMessages');
-      return [];
+      console.error('❌ Database fetch failed, using local storage:', error);
+      return messagesFromLocal;
     }
 
-    console.log('Fetched messages:', data?.length || 0);
+    console.log('✅ Fetched messages from database:', data?.length || 0);
 
-    const messages = (data || []).map(msg => ({
+    const messagesFromDB = (data || []).map(msg => ({
       id: msg.id,
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
@@ -666,41 +662,52 @@ export const getConversationMessages = async (conversationId: string): Promise<M
       isVoice: msg.is_voice || false,
     }));
 
-    // Cache in local storage
-    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(messages.map(msg => ({
+    // Merge with local storage - prioritize database data
+    const mergedMessages = [...messagesFromDB];
+    
+    // Add any local messages not in database
+    localMessages.forEach((localMsg: any) => {
+      if (!mergedMessages.find(m => m.id === localMsg.id)) {
+        mergedMessages.push({
+          ...localMsg,
+          timestamp: new Date(localMsg.timestamp)
+        });
+      }
+    });
+
+    // Update local storage cache with merged data
+    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(mergedMessages.map(msg => ({
       ...msg,
       timestamp: msg.timestamp.toISOString()
     }))));
 
-    return messages;
+    console.log('✅ Messages loaded from database and cached:', mergedMessages.length);
+    return mergedMessages;
   } catch (error) {
-    console.error('Error in getConversationMessages:', error);
-    // Fallback to local storage
-    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-    return localMessages.map((msg: any) => ({
-      ...msg,
-      timestamp: new Date(msg.timestamp)
-    }));
+    console.error('❌ Error in getConversationMessages:', error);
+    return messagesFromLocal;
   }
 };
 
 export const saveMessage = async (conversationId: string, message: Message): Promise<void> => {
   const client = checkSupabase();
   
+  // Always save to local storage first for immediate availability
+  const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
+  localMessages.push({
+    ...message,
+    timestamp: message.timestamp.toISOString()
+  });
+  localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
+  console.log('✅ Message saved to local storage immediately');
+
   if (!client) {
-    // Fallback to local storage
-    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-    localMessages.push({
-      ...message,
-      timestamp: message.timestamp.toISOString()
-    });
-    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
-    console.log('Message saved to local storage');
+    console.log('⚠️ Supabase not available, message saved to local storage only');
     return;
   }
 
   try {
-    console.log('Saving message to conversation:', conversationId);
+    console.log('🔄 Saving message to database for conversation:', conversationId);
     
     const { error } = await client
       .from('messages')
@@ -713,8 +720,8 @@ export const saveMessage = async (conversationId: string, message: Message): Pro
       });
 
     if (error) {
-      handleSupabaseError(error, 'saveMessage');
-      throw error;
+      console.error('❌ Database save failed, but message is preserved in local storage:', error);
+      return;
     }
 
     // Update conversation's updated_at timestamp
@@ -723,24 +730,9 @@ export const saveMessage = async (conversationId: string, message: Message): Pro
       .update({ updated_at: new Date().toISOString() })
       .eq('id', conversationId);
 
-    console.log('Message saved successfully');
-    
-    // Update local storage cache
-    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-    localMessages.push({
-      ...message,
-      timestamp: message.timestamp.toISOString()
-    });
-    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
+    console.log('✅ Message saved to database successfully');
   } catch (error) {
-    console.error('Error in saveMessage:', error);
-    // Fallback to local storage
-    const localMessages = JSON.parse(localStorage.getItem(`messages_${conversationId}`) || '[]');
-    localMessages.push({
-      ...message,
-      timestamp: message.timestamp.toISOString()
-    });
-    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(localMessages));
+    console.error('❌ Error in saveMessage:', error);
     console.log('Message saved to local storage as fallback');
   }
 };
@@ -753,20 +745,22 @@ export const updateConversation = async (conversationId: string, updates: {
 }): Promise<void> => {
   const client = checkSupabase();
   
+  // Always update local storage first for immediate UI updates
+  const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
+  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+  const updatedConversations = localConversations.map((conv: any) => 
+    conv.id === conversationId ? { 
+      ...conv, 
+      ...updates, 
+      ai_label: updates.aiLabel,
+      updated_at: new Date().toISOString() 
+    } : conv
+  );
+  localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
+  console.log('✅ Conversation updated in local storage immediately');
+
   if (!client) {
-    // Fallback to local storage
-    const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    const updatedConversations = localConversations.map((conv: any) => 
-      conv.id === conversationId ? { 
-        ...conv, 
-        ...updates, 
-        ai_label: updates.aiLabel,
-        updated_at: new Date().toISOString() 
-      } : conv
-    );
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
-    console.log('Conversation updated in local storage');
+    console.log('⚠️ Supabase not available, conversation updated in local storage only');
     return;
   }
 
@@ -786,25 +780,13 @@ export const updateConversation = async (conversationId: string, updates: {
       .eq('id', conversationId);
 
     if (error) {
-      handleSupabaseError(error, 'updateConversation');
-      throw error;
+      console.error('❌ Database update failed, but conversation is preserved in local storage:', error);
+      return;
     }
 
-    console.log('Conversation updated successfully');
+    console.log('✅ Conversation updated in database successfully');
   } catch (error) {
-    console.error('Error in updateConversation:', error);
-    // Fallback to local storage
-    const userId = conversationId.split('_')[0]; // Extract user ID from conversation ID
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    const updatedConversations = localConversations.map((conv: any) => 
-      conv.id === conversationId ? { 
-        ...conv, 
-        ...updates, 
-        ai_label: updates.aiLabel,
-        updated_at: new Date().toISOString() 
-      } : conv
-    );
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(updatedConversations));
+    console.error('❌ Error in updateConversation:', error);
     console.log('Conversation updated in local storage as fallback');
   }
 };
@@ -813,13 +795,15 @@ export const updateConversation = async (conversationId: string, updates: {
 export const deleteConversation = async (conversationId: string): Promise<void> => {
   const client = checkSupabase();
   
+  // Always update local storage first for immediate UI updates
+  const userId = conversationId.split('_')[0];
+  const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
+  const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
+  localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
+  console.log('✅ Conversation deleted from local storage immediately');
+
   if (!client) {
-    // Fallback to local storage - remove from array
-    const userId = conversationId.split('_')[0];
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
-    console.log('Conversation deleted from local storage');
+    console.log('⚠️ Supabase not available, conversation deleted from local storage only');
     return;
   }
 
@@ -829,18 +813,13 @@ export const deleteConversation = async (conversationId: string): Promise<void> 
     });
 
     if (error) {
-      handleSupabaseError(error, 'deleteConversation');
-      throw error;
+      console.error('❌ Database delete failed, but conversation is removed from local storage:', error);
+      return;
     }
 
-    console.log('Conversation soft deleted successfully');
+    console.log('✅ Conversation soft deleted in database successfully');
   } catch (error) {
-    console.error('Error in deleteConversation:', error);
-    // Fallback to local storage
-    const userId = conversationId.split('_')[0];
-    const localConversations = JSON.parse(localStorage.getItem(`conversations_${userId}`) || '[]');
-    const filteredConversations = localConversations.filter((conv: any) => conv.id !== conversationId);
-    localStorage.setItem(`conversations_${userId}`, JSON.stringify(filteredConversations));
+    console.error('❌ Error in deleteConversation:', error);
     console.log('Conversation deleted from local storage as fallback');
   }
 };
@@ -864,7 +843,7 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
   if (goalIndex >= 0) {
     localGoals[goalIndex] = goalToStore;
   } else {
-    localGoals.push(goalToStore);
+    localGoals.unshift(goalToStore); // Add to beginning for latest first
   }
   
   localStorage.setItem(`goals_${userId}`, JSON.stringify(localGoals));
@@ -876,7 +855,7 @@ export const saveGoal = async (userId: string, sessionId: string, goal: Goal): P
   }
 
   try {
-    console.log('💾 Saving goal to database:', goal.id, 'for user:', userId);
+    console.log('🔄 Saving goal to database:', goal.id, 'for user:', userId);
     
     // Use the database function for creating goals
     const { data, error } = await client.rpc('create_user_goal', {
@@ -927,6 +906,8 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
   }
 
   try {
+    console.log('🔄 Fetching goals from database for user:', userId);
+    
     // Use the database function to get user goals
     const { data, error } = await client.rpc('get_user_goals', {
       target_user_id: userId,
@@ -967,6 +948,9 @@ export const getUserGoals = async (userId: string): Promise<Goal[]> => {
       }
     });
 
+    // Sort by creation date (newest first)
+    mergedGoals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
     // Update local storage cache with merged data
     localStorage.setItem(`goals_${userId}`, JSON.stringify(mergedGoals.map(goal => ({
       ...goal,
@@ -992,7 +976,7 @@ export const completeGoal = async (
 ): Promise<{ newXP: number; newLevel: number } | null> => {
   const client = checkSupabase();
   
-  // Update local storage immediately
+  // Always update local storage first for immediate UI updates
   const localGoals = JSON.parse(localStorage.getItem(`goals_${userId}`) || '[]');
   const updatedLocalGoals = localGoals.map((g: any) => 
     g.id === goalId ? {
@@ -1012,6 +996,8 @@ export const completeGoal = async (
   }
 
   try {
+    console.log('🔄 Completing goal in database:', goalId);
+    
     // Use the database function to complete the goal
     const { data, error } = await client.rpc('complete_goal_with_xp', {
       goal_id: goalId,
