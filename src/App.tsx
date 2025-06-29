@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain, Menu, X } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
 import { AuthScreen } from './components/AuthScreen';
@@ -38,9 +38,20 @@ function MainApp() {
   const { user, loading, signOut } = useAuth();
   const { profile: userProfile, goals, loading: dataLoading, refreshData } = useOptimizedData();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentView, setCurrentView] = useState<AppView>('coaching');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // ENHANCED: Redirect to auth if user is not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      // Only redirect if we're not already on an auth-related route
+      if (!location.pathname.startsWith('/auth')) {
+        navigate('/auth', { replace: true });
+      }
+    }
+  }, [user, loading, navigate, location.pathname]);
 
   useEffect(() => {
     if (user && userProfile && !userProfile.name) {
@@ -61,6 +72,7 @@ function MainApp() {
   const handleSignOut = async () => {
     await signOut();
     setMobileMenuOpen(false);
+    navigate('/auth', { replace: true });
   };
 
   const handleLogoClick = () => {
@@ -93,8 +105,9 @@ function MainApp() {
     );
   }
 
+  // If user is not authenticated, don't render the main app
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    return null;
   }
 
   const renderNavigation = () => (
@@ -327,6 +340,45 @@ function MainApp() {
   );
 }
 
+// ENHANCED: Root redirect component to handle the main domain redirect
+function RootRedirect() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // If user is on the root path, redirect to auth after a brief delay for the animation
+    if (location.pathname === '/') {
+      const timer = setTimeout(() => {
+        navigate('/auth', { replace: true });
+      }, 2000); // 2 second delay to show the loading animation
+
+      return () => clearTimeout(timer);
+    }
+  }, [navigate, location.pathname]);
+
+  // Show loading animation while redirecting
+  return (
+    <div className="full-height-layout bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800">
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative mx-auto w-20 h-20 mb-6">
+            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+              <span className="text-white font-bold text-2xl">G</span>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
+          </div>
+          <h1 className="text-4xl font-bold text-white mb-4">Goalify</h1>
+          <p className="text-purple-300 text-lg">Your AI Coaching Companion</p>
+          <div className="mt-6">
+            <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          </div>
+        </div>
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
 function App() {
   return (
     <Routes>
@@ -339,6 +391,7 @@ function App() {
           <Footer />
         </div>
       } />
+      <Route path="/" element={<RootRedirect />} />
       <Route path="/*" element={<MainApp />} />
     </Routes>
   );
