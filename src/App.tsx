@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain } from 'lucide-react';
+import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain, Menu, X } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
 import { ProgressDashboard } from './components/ProgressDashboard';
 import { UserAnalysis } from './components/UserAnalysis';
@@ -10,7 +10,7 @@ import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
 import { useAuth } from './hooks/useAuth';
 import { useGoals } from './hooks/useGoals';
-import { getUserProfile, createUserProfile } from './services/database';
+import { getUserProfile, createUserProfile, updateDailyStreak } from './services/database';
 import { UserProfile } from './types/coaching';
 
 type AppView = 'coaching' | 'progress' | 'analysis' | 'settings';
@@ -23,10 +23,12 @@ function MainApp() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadUserProfile();
+      updateDailyStreak(user.id); // Update streak on app load
     } else {
       setUserProfile(null);
       setProfileLoading(false);
@@ -66,15 +68,22 @@ function MainApp() {
   const handleSignOut = async () => {
     await signOut();
     setUserProfile(null);
+    setMobileMenuOpen(false);
   };
 
   const handleLogoClick = () => {
     setCurrentView('coaching');
+    setMobileMenuOpen(false);
     navigate('/');
   };
 
   const handleProfileUpdate = (updatedProfile: UserProfile) => {
     setUserProfile(updatedProfile);
+  };
+
+  const handleViewChange = (view: AppView) => {
+    setCurrentView(view);
+    setMobileMenuOpen(false);
   };
 
   if (loading || profileLoading) {
@@ -126,8 +135,9 @@ function MainApp() {
             </button>
           </div>
 
+          {/* Desktop Stats */}
           {userProfile && (
-            <div className="hidden md:flex items-center space-x-4">
+            <div className="hidden lg:flex items-center space-x-4">
               {/* Level Display */}
               <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-1 rounded-full border border-yellow-500/30">
                 <span className="text-yellow-300 font-medium text-sm">Level {userProfile.level || 1}</span>
@@ -148,8 +158,22 @@ function MainApp() {
               </div>
             </div>
           )}
+
+          {/* Mobile Stats */}
+          {userProfile && (
+            <div className="flex lg:hidden items-center space-x-2">
+              <div className="flex items-center space-x-1 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-2 py-1 rounded-full border border-orange-500/30">
+                <Flame className="w-3 h-3 text-orange-400" />
+                <span className="text-orange-300 font-medium text-xs">{userProfile.dailyStreak || 0}</span>
+              </div>
+              <div className="flex items-center space-x-1 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-2 py-1 rounded-full border border-yellow-500/30">
+                <span className="text-yellow-300 font-medium text-xs">L{userProfile.level || 1}</span>
+              </div>
+            </div>
+          )}
           
-          <div className="flex items-center space-x-1">
+          {/* Desktop Navigation */}
+          <div className="hidden lg:flex items-center space-x-1">
             {[
               { id: 'coaching', label: 'Coaching', icon: MessageCircle },
               { id: 'progress', label: 'Progress', icon: BarChart3 },
@@ -160,7 +184,7 @@ function MainApp() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentView(item.id as AppView)}
+                  onClick={() => handleViewChange(item.id as AppView)}
                   className={`group relative flex items-center space-x-2 px-4 py-2 rounded-xl font-medium transition-all duration-300 ${
                     currentView === item.id 
                       ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 shadow-lg' 
@@ -168,7 +192,7 @@ function MainApp() {
                   }`}
                 >
                   <Icon className="w-4 h-4" />
-                  <span className="hidden sm:block">{item.label}</span>
+                  <span>{item.label}</span>
                   {currentView === item.id && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-xl animate-pulse"></div>
                   )}
@@ -181,10 +205,80 @@ function MainApp() {
               className="flex items-center space-x-2 px-4 py-2 rounded-xl font-medium text-purple-200 hover:text-white hover:bg-red-500/10 transition-all duration-300"
             >
               <LogOut className="w-4 h-4" />
-              <span className="hidden sm:block">Sign Out</span>
+              <span>Sign Out</span>
             </button>
           </div>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="lg:hidden p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-colors"
+          >
+            {mobileMenuOpen ? (
+              <X className="w-5 h-5 text-purple-300" />
+            ) : (
+              <Menu className="w-5 h-5 text-purple-300" />
+            )}
+          </button>
         </div>
+
+        {/* Mobile Dropdown Menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden absolute top-full left-0 right-0 bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 border-b border-purple-500/20 shadow-xl z-50">
+            <div className="px-4 py-4 space-y-2">
+              {[
+                { id: 'coaching', label: 'Coaching', icon: MessageCircle },
+                { id: 'progress', label: 'Progress', icon: BarChart3 },
+                { id: 'analysis', label: 'Analysis', icon: Brain },
+                { id: 'settings', label: 'Settings', icon: SettingsIcon }
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleViewChange(item.id as AppView)}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 ${
+                      currentView === item.id 
+                        ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300' 
+                        : 'text-purple-200 hover:text-white hover:bg-purple-500/10'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+              
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-red-300 hover:text-white hover:bg-red-500/10 transition-all duration-300"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>Sign Out</span>
+              </button>
+
+              {/* Mobile Stats Summary */}
+              {userProfile && (
+                <div className="mt-4 pt-4 border-t border-purple-500/20">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-2 rounded-lg border border-yellow-500/30">
+                      <div className="text-yellow-300 font-bold text-sm">Level {userProfile.level || 1}</div>
+                      <div className="text-yellow-200 text-xs">{userProfile.totalXP || 0} XP</div>
+                    </div>
+                    <div className="bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-2 rounded-lg border border-orange-500/30">
+                      <div className="text-orange-300 font-bold text-sm">{userProfile.dailyStreak || 0}</div>
+                      <div className="text-orange-200 text-xs">day streak</div>
+                    </div>
+                    <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-3 py-2 rounded-lg border border-purple-500/30">
+                      <div className="text-purple-300 font-bold text-sm">{goals.filter(g => g.completed).length}/{goals.length}</div>
+                      <div className="text-purple-200 text-xs">goals</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   );

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus, Brain, Target, Lightbulb, Heart, Briefcase, Dumbbell, Trash2, XCircle } from 'lucide-react';
+import { X, Calendar, MessageCircle, Clock, Search, Filter, ArrowRight, Plus, Brain, Target, Lightbulb, Heart, Briefcase, Dumbbell, MoreVertical, Trash2, XCircle } from 'lucide-react';
 import { UserProfile } from '../types/coaching';
-import { getUserConversations, updateConversation } from '../services/database';
+import { getUserConversations, updateConversation, deleteConversation } from '../services/database';
 import { useAuth } from '../hooks/useAuth';
 import { generateConversationLabel } from '../services/openai';
 
@@ -83,18 +83,24 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         conversationsData.map(async (conv) => {
           const conversation: Conversation = {
             ...conv,
-            aiLabel: conv.title, // Start with existing title
-            category: 'general'
+            aiLabel: conv.aiLabel || conv.title, // Use existing AI label or fallback to title
+            category: conv.category || 'general'
           };
 
-          // Generate AI label if conversation has enough content and doesn't already have a good label
-          if (conv.title.length < 50 && !conv.title.includes('...')) {
+          // Generate AI label if conversation doesn't have one and has enough content
+          if (!conv.aiLabel && conv.title.length > 20 && !conv.title.includes('Hi! I\'m your AI Coach')) {
             try {
               setLabelingConversations(prev => new Set(prev).add(conv.id));
               const aiLabel = await generateConversationLabel(conv.title);
-              if (aiLabel && aiLabel !== conv.title) {
+              if (aiLabel && aiLabel.label !== conv.title) {
                 conversation.aiLabel = aiLabel.label;
                 conversation.category = aiLabel.category;
+                
+                // Update the conversation in the database with the AI label
+                await updateConversation(conv.id, {
+                  aiLabel: aiLabel.label,
+                  category: aiLabel.category
+                });
               }
             } catch (error) {
               console.error('Error generating AI label for conversation:', conv.id, error);
@@ -182,14 +188,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     }
   };
 
-  const handleRightClick = (e: React.MouseEvent, conversationId: string) => {
+  const handleMenuClick = (e: React.MouseEvent, conversationId: string) => {
     e.preventDefault();
     e.stopPropagation();
     
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
     setContextMenu({
       isOpen: true,
-      x: e.clientX,
-      y: e.clientY,
+      x: rect.left - 160, // Position to the left of the button
+      y: rect.bottom + 5,
       conversationId
     });
   };
@@ -217,9 +224,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
   const handleDeleteChat = async (conversationId: string) => {
     try {
-      // For now, we'll just mark as completed and hide from UI
-      // In a real app, you might want to add a soft delete flag
-      await updateConversation(conversationId, { completed: true });
+      await deleteConversation(conversationId);
       
       // Remove from local state
       setConversations(prev => prev.filter(conv => conv.id !== conversationId));
@@ -276,9 +281,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             return (
               <div 
                 key={conversation.id}
-                onClick={() => !isLabeling && handleConversationClick(conversation)}
-                onContextMenu={(e) => !isLabeling && handleRightClick(e, conversation.id)}
-                className={`p-3 rounded-lg transition-all duration-300 border group hover:scale-[1.02] ${
+                className={`p-3 rounded-lg transition-all duration-300 border group hover:scale-[1.02] relative ${
                   isLabeling 
                     ? 'bg-slate-700/20 border-slate-600/20 cursor-wait opacity-75'
                     : currentConversationId === conversation.id
@@ -286,7 +289,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                       : 'bg-slate-700/30 hover:bg-slate-600/40 border-slate-600/30 hover:border-purple-500/30 cursor-pointer'
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
+                <div 
+                  onClick={() => !isLabeling && handleConversationClick(conversation)}
+                  className="flex items-center justify-between"
+                >
                   <div className="flex items-center space-x-2 flex-1 mr-2">
                     {/* Category Icon */}
                     <div className={`p-1 rounded ${getCategoryColor(conversation.category || 'general')}`}>
@@ -294,39 +300,52 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     </div>
                     
                     {/* Conversation Title/Label */}
-                    <span className={`text-sm font-medium line-clamp-2 flex-1 transition-colors ${
-                      isLabeling 
-                        ? 'text-purple-400'
-                        : 'text-white group-hover:text-purple-200'
-                    }`}>
-                      {isLabeling ? (
-                        <span className="flex items-center space-x-2">
-                          <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin"></div>
-                          <span>Analyzing conversation...</span>
-                        </span>
-                      ) : (
-                        conversation.aiLabel || conversation.title
-                      )}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2 flex-shrink-0">
-                    <span className="text-xs text-purple-300">
-                      {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {!isLabeling && (
-                      <ArrowRight className={`w-3 h-3 text-purple-400 transition-all duration-200 ${
-                        currentConversationId === conversation.id ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover:opacity-100'
-                      }`} />
-                    )}
+                    <div className="flex-1">
+                      <span className={`text-sm font-medium line-clamp-2 transition-colors ${
+                        isLabeling 
+                          ? 'text-purple-400'
+                          : 'text-white group-hover:text-purple-200'
+                      }`}>
+                        {isLabeling ? (
+                          <span className="flex items-center space-x-2">
+                            <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                            <span>Analyzing conversation...</span>
+                          </span>
+                        ) : (
+                          conversation.aiLabel || conversation.title
+                        )}
+                      </span>
+                      
+                      <div className="flex items-center justify-between mt-1">
+                        <div className="text-xs text-purple-400">
+                          {conversation.updated_at.toLocaleDateString()}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-purple-300">
+                            {conversation.updated_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {!isLabeling && (
+                            <ArrowRight className={`w-3 h-3 text-purple-400 transition-all duration-200 ${
+                              currentConversationId === conversation.id ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover:opacity-100'
+                            }`} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Three dots menu */}
+                {!isLabeling && (
+                  <button
+                    onClick={(e) => handleMenuClick(e, conversation.id)}
+                    className="absolute top-2 right-2 p-1 rounded-full hover:bg-purple-500/20 transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <MoreVertical className="w-4 h-4 text-purple-400" />
+                  </button>
+                )}
                 
-                <div className="text-xs text-purple-400 mb-2">
-                  {conversation.updated_at.toLocaleDateString()}
-                </div>
-                
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs mt-2">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     conversation.completed 
                       ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
@@ -363,7 +382,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
-            transform: 'translate(-50%, -10px)'
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -453,7 +471,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </div>
             
             <div className="text-xs text-purple-400 mt-2">
-              💡 Right-click conversations for options
+              💡 Click the three dots for options
             </div>
           </div>
 
