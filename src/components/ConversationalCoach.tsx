@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target, X, CheckCircle, XCircle } from 'lucide-react';
+import { MessageCircle, Mic, MicOff, Volume2, VolumeX, Send, Loader, Menu, Sidebar, RotateCcw, Clock, Target, X, CheckCircle, XCircle, ArrowRight, Pause } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ConversationContext, UserProfile } from '../types/coaching';
 import { generateCoachingResponse, generateGoalFromConversation, isOpenAIConfigured, AIState } from '../services/openai';
@@ -59,6 +59,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [showXPAnimation, setShowXPAnimation] = useState(false);
   const [xpGained, setXpGained] = useState(0);
   const [showContinueOptions, setShowContinueOptions] = useState(false);
+  const [isIdle, setIsIdle] = useState(false);
+  const [idleTimer, setIdleTimer] = useState<NodeJS.Timeout | null>(null);
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -103,6 +105,35 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       loadGoals();
     }
   }, [currentConversationId, user]);
+
+  // CRITICAL: Idle detection - show continue/close options after 2 minutes of inactivity
+  useEffect(() => {
+    const resetIdleTimer = () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+      
+      setIsIdle(false);
+      
+      // Only set idle timer if conversation is active and not completed
+      if (hasStartedSession && !isConversationCompleted && !pendingGoal && !showContinueOptions) {
+        const timer = setTimeout(() => {
+          setIsIdle(true);
+        }, 120000); // 2 minutes
+        
+        setIdleTimer(timer);
+      }
+    };
+
+    // Reset timer on any user activity
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+    };
+  }, [activeConversationMessages, hasStartedSession, isConversationCompleted, pendingGoal, showContinueOptions]);
 
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
@@ -254,6 +285,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setIsConversationCompleted(false);
       setShowEndChatButton(false);
       setShowContinueOptions(false);
+      setIsIdle(false);
       setAiState('COACHING_Q1');
       setInputText('');
       resetTranscript();
@@ -501,6 +533,42 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     }
   };
 
+  // CRITICAL: Handle idle conversation options
+  const handleIdleChoice = async (continueConversation: boolean) => {
+    setIsIdle(false);
+    
+    if (continueConversation) {
+      // Continue conversation - just reset idle state
+      const goalStats = getGoalStats();
+      const continueMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: `I'm here when you're ready! ${goalStats.pending > 0 ? `You have ${goalStats.pending} active goals to work on, or ` : ''}What would you like to talk about?`,
+        timestamp: new Date()
+      };
+      
+      setActiveConversationMessages(prev => [...prev, continueMessage]);
+      setCurrentlyTyping(continueMessage.id);
+      
+      if (currentConversationId) {
+        await saveMessage(currentConversationId, continueMessage);
+      }
+      
+      setTimeout(() => {
+        setCurrentlyTyping(null);
+        if (voiceEnabled && isElevenLabsConfigured) {
+          playCoachResponse(continueMessage.content);
+        }
+      }, continueMessage.content.length * 25);
+    } else {
+      // Close conversation
+      if (currentConversationId) {
+        await updateConversation(currentConversationId, { completed: true });
+      }
+      handleEndChat();
+    }
+  };
+
   // CRITICAL: Goal completion handler with XP rewards
   const handleGoalCompletion = async (goalId: string, reasoning: string) => {
     if (!user || !userProfile) return;
@@ -581,6 +649,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     if (!content.trim() || isLoading || !user || !currentConversationId) return;
 
     setIsLoading(true);
+    setIsIdle(false); // Reset idle state on user activity
     
     const userMessage: Message = {
       id: uuidv4(),
@@ -714,8 +783,14 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     setIsConversationCompleted(false);
     setShowEndChatButton(false);
     setShowContinueOptions(false);
+    setIsIdle(false);
     setInputText('');
     resetTranscript();
+    
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      setIdleTimer(null);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -790,8 +865,6 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       <GoalSidebar 
         isOpen={rightSidebarOpen}
         onClose={() => setRightSidebarOpen(false)}
-        goals={goals}
-        onGoalComplete={handleGoalCompletion}
         userProfile={userProfile}
       />
 
@@ -977,7 +1050,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                         onClick={() => handleContinueChoice(true)}
                         className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
                       >
-                        <MessageCircle className="w-4 h-4" />
+                        <ArrowRight className="w-4 h-4" />
                         <span>Continue Coaching</span>
                       </button>
                       <button
@@ -986,6 +1059,34 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                       >
                         <X className="w-4 h-4" />
                         <span>End Session</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* CRITICAL: Idle Options - Show after 2 minutes of inactivity */}
+              {isIdle && index === activeConversationMessages.length - 1 && !showContinueOptions && !pendingGoal && (
+                <div className="flex justify-start mt-4 animate-fade-in">
+                  <div className="bg-gradient-to-r from-orange-500/10 to-yellow-500/10 rounded-xl p-4 border border-orange-500/20 backdrop-blur-sm">
+                    <div className="flex items-center space-x-2 mb-3">
+                      <Pause className="w-4 h-4 text-orange-400" />
+                      <p className="text-white text-sm font-medium">Still there? What would you like to do?</p>
+                    </div>
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={() => handleIdleChoice(true)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                        <span>Continue</span>
+                      </button>
+                      <button
+                        onClick={() => handleIdleChoice(false)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>Close</span>
                       </button>
                     </div>
                   </div>
@@ -1076,6 +1177,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-green-500/10 text-green-300 rounded-full border border-green-500/20 backdrop-blur-sm">
                 <span className="text-sm font-medium">Choose your next step above to continue</span>
+              </div>
+            </div>
+          )}
+
+          {isIdle && (
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-orange-500/10 text-orange-300 rounded-full border border-orange-500/20 backdrop-blur-sm">
+                <Pause className="w-4 h-4" />
+                <span className="text-sm font-medium">Session paused - choose an option above</span>
               </div>
             </div>
           )}
