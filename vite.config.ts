@@ -12,7 +12,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    assetsDir: 'assets',
+    assetsDir: 'assets',goalify
+      
     minify: 'terser',
     terserOptions: {
       compress: {
