@@ -7,11 +7,20 @@ export default defineConfig({
   base: '/',
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['react', 'react-dom', 'react-router-dom']
   },
   build: {
     outDir: 'dist',
     sourcemap: false,
     assetsDir: 'assets',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug']
+      }
+    },
     rollupOptions: {
       output: {
         manualChunks: {
@@ -20,8 +29,17 @@ export default defineConfig({
           supabase: ['@supabase/supabase-js'],
           openai: ['openai'],
         },
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]'
       },
+      treeshake: {
+        moduleSideEffects: false,
+        propertyReadSideEffects: false,
+        unknownGlobalSideEffects: false
+      }
     },
+    chunkSizeWarningLimit: 1000
   },
   server: {
     port: 5173,

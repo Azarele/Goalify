@@ -2,65 +2,36 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { MessageCircle, BarChart3, Settings as SettingsIcon, LogOut, Flame, Brain, Menu, X } from 'lucide-react';
 import { ConversationalCoach } from './components/ConversationalCoach';
-import { ProgressDashboard } from './components/ProgressDashboard';
-import { UserAnalysis } from './components/UserAnalysis';
-import { Settings } from './components/Settings';
+import { LazyProgressDashboard, LazyUserAnalysis, LazySettings, LazyWrapper } from './components/LazyComponents';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthCallback } from './components/AuthCallback';
 import { OnboardingModal } from './components/OnboardingModal';
 import { Footer } from './components/Footer';
 import { useAuth } from './hooks/useAuth';
-import { useGoals } from './hooks/useGoals';
-import { getUserProfile, createUserProfile, updateDailyStreak } from './services/database';
-import { UserProfile } from './types/coaching';
+import { useOptimizedData } from './hooks/useOptimizedData';
+import { updateDailyStreak } from './services/database';
 
 type AppView = 'coaching' | 'progress' | 'analysis' | 'settings';
 
 function MainApp() {
   const { user, loading, signOut } = useAuth();
-  const { goals, loadGoals } = useGoals();
+  const { profile: userProfile, goals, loading: dataLoading, refreshData } = useOptimizedData();
   const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<AppView>('coaching');
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
+    if (user && userProfile && !userProfile.name) {
+      setShowOnboarding(true);
+    }
+  }, [user, userProfile]);
+
+  useEffect(() => {
     if (user) {
-      loadUserProfile();
-      updateDailyStreak(user.id); // Update streak on app load
-    } else {
-      setUserProfile(null);
-      setProfileLoading(false);
+      updateDailyStreak(user.id);
     }
   }, [user]);
-
-  // Reload goals and profile when user changes
-  useEffect(() => {
-    if (user && userProfile) {
-      loadGoals();
-    }
-  }, [user, userProfile?.totalXP]);
-
-  const loadUserProfile = async () => {
-    if (!user) return;
-
-    try {
-      let profile = await getUserProfile(user.id);
-      
-      if (!profile) {
-        profile = await createUserProfile(user.id, user.user_metadata?.full_name);
-        setShowOnboarding(true);
-      }
-      
-      setUserProfile(profile);
-    } catch (error) {
-      console.error('Error loading user profile:', error);
-    } finally {
-      setProfileLoading(false);
-    }
-  };
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
@@ -68,7 +39,6 @@ function MainApp() {
 
   const handleSignOut = async () => {
     await signOut();
-    setUserProfile(null);
     setMobileMenuOpen(false);
   };
 
@@ -78,16 +48,12 @@ function MainApp() {
     navigate('/');
   };
 
-  const handleProfileUpdate = (updatedProfile: UserProfile) => {
-    setUserProfile(updatedProfile);
-  };
-
   const handleViewChange = (view: AppView) => {
     setCurrentView(view);
     setMobileMenuOpen(false);
   };
 
-  if (loading || profileLoading) {
+  if (loading || dataLoading) {
     return (
       <div className="full-height-layout bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800">
         <div className="flex-1 flex items-center justify-center">
@@ -142,20 +108,17 @@ function MainApp() {
           {/* Desktop Stats */}
           {userProfile && (
             <div className="hidden lg:flex items-center space-x-4">
-              {/* Level Display */}
               <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 px-3 py-1 rounded-full border border-yellow-500/30">
                 <span className="text-yellow-300 font-medium text-sm">Level {userProfile.level || 1}</span>
                 <span className="text-yellow-200 text-xs">{userProfile.totalXP || 0} XP</span>
               </div>
               
-              {/* Streak Display */}
               <div className="flex items-center space-x-2 bg-gradient-to-r from-orange-500/20 to-red-500/20 px-3 py-1 rounded-full border border-orange-500/30">
                 <Flame className="w-4 h-4 text-orange-400" />
                 <span className="text-orange-300 font-medium text-sm">{userProfile.dailyStreak || 0}</span>
                 <span className="text-orange-200 text-xs">day streak</span>
               </div>
               
-              {/* Goals Count */}
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-3 py-1 rounded-full border border-purple-500/30">
                 <span className="text-purple-300 font-medium text-sm">{goals.filter(g => g.completed).length}/{goals.length}</span>
                 <span className="text-purple-200 text-xs">goals</span>
@@ -292,14 +255,16 @@ function MainApp() {
       case 'coaching':
         return (
           <div className="flex-1 min-h-0">
-            <ConversationalCoach userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
+            <ConversationalCoach userProfile={userProfile} onProfileUpdate={refreshData} />
           </div>
         );
       case 'progress':
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <ProgressDashboard userProfile={userProfile} />
+              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading dashboard...</p></div>}>
+                <LazyProgressDashboard userProfile={userProfile} />
+              </LazyWrapper>
             </div>
           </div>
         );
@@ -307,7 +272,9 @@ function MainApp() {
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <UserAnalysis userProfile={userProfile} />
+              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading analysis...</p></div>}>
+                <LazyUserAnalysis userProfile={userProfile} />
+              </LazyWrapper>
             </div>
           </div>
         );
@@ -315,7 +282,9 @@ function MainApp() {
         return (
           <div className="flex-1 scrollable-container">
             <div className="max-w-6xl mx-auto px-4 py-8">
-              <Settings userProfile={userProfile} onProfileUpdate={handleProfileUpdate} />
+              <LazyWrapper fallback={<div className="text-center py-8"><p className="text-purple-300">Loading settings...</p></div>}>
+                <LazySettings userProfile={userProfile} onProfileUpdate={refreshData} />
+              </LazyWrapper>
             </div>
           </div>
         );
