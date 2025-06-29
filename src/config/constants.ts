@@ -6,18 +6,18 @@ export const APP_CONFIG = {
   author: 'Goalify Team'
 } as const;
 
-// API Configuration
+// API Configuration - Optimized for minimal usage
 export const API_CONFIG = {
-  timeout: 30000,
-  maxRetries: 3,
-  retryDelay: 1000
+  timeout: 15000, // Reduced timeout
+  maxRetries: 1, // Reduced retries
+  retryDelay: 500 // Reduced delay
 } as const;
 
 // Coaching Configuration
 export const COACHING_CONFIG = {
   maxQuestionsPerCycle: 3,
   minGoalsForConclusion: 2,
-  maxResponseLength: 150,
+  maxResponseLength: 100, // Reduced from 150
   typewriterSpeed: 25,
   voicePlaybackDelay: 1000
 } as const;
@@ -72,6 +72,30 @@ export const DB_CONFIG = {
   batchSize: 50,
   maxRetries: 3,
   connectionTimeout: 10000
+} as const;
+
+// OpenAI Optimization Configuration
+export const OPENAI_CONFIG = {
+  model: 'gpt-3.5-turbo', // Use cheaper model by default
+  maxTokens: {
+    coaching: 30,      // Reduced from 150
+    goalProposal: 40,  // Reduced from 100
+    verification: 25,  // Reduced from 200
+    analysis: 50,      // Reduced from 400
+    labeling: 30       // Reduced from 100
+  },
+  temperature: {
+    coaching: 0.7,
+    verification: 0.1, // Lower for consistency
+    analysis: 0.5,
+    labeling: 0.1      // Lower for consistency
+  },
+  contextWindow: 3,    // Only keep last 3 messages
+  maxInputLength: {
+    conversation: 100, // Truncate long conversations
+    goal: 50,         // Truncate goal descriptions
+    reasoning: 100    // Truncate user reasoning
+  }
 } as const;
 
 // Error Messages
