@@ -61,6 +61,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   const [showContinueOptions, setShowContinueOptions] = useState(false);
   const [isIdle, setIsIdle] = useState(false);
   const [idleTimer, setIdleTimer] = useState<NodeJS.Timeout | null>(null);
+  const [lastActivityTime, setLastActivityTime] = useState<Date>(new Date());
   
   // Session state
   const [hasStartedSession, setHasStartedSession] = useState(false);
@@ -98,7 +99,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversationMessages]);
 
-  // Idle detection - show continue/close options after 2 minutes of inactivity
+  // Enhanced idle detection - show close options after 5 minutes of inactivity
   useEffect(() => {
     const resetIdleTimer = () => {
       if (idleTimer) {
@@ -106,12 +107,13 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       }
       
       setIsIdle(false);
+      setLastActivityTime(new Date());
       
       // Only set idle timer if conversation is active and not completed
       if (hasStartedSession && !isConversationCompleted && !pendingGoal && !showContinueOptions) {
         const timer = setTimeout(() => {
           setIsIdle(true);
-        }, 120000); // 2 minutes
+        }, 300000); // 5 minutes (300,000 ms)
         
         setIdleTimer(timer);
       }
@@ -125,6 +127,81 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       }
     };
   }, [activeConversationMessages, hasStartedSession, isConversationCompleted, pendingGoal, showContinueOptions]);
+
+  // Generate conversation title using AI based on conversation content
+  const generateConversationTitle = async (messages: Message[]): Promise<string> => {
+    if (!isOpenAIConfigured) {
+      // Fallback to simple title generation
+      const userMessages = messages.filter(m => m.role === 'user');
+      if (userMessages.length > 0) {
+        const firstMessage = userMessages[0].content;
+        const words = firstMessage.trim().split(' ').slice(0, 4);
+        return words.join(' ') + (firstMessage.length > words.join(' ').length ? '...' : '');
+      }
+      return 'New Conversation';
+    }
+
+    try {
+      // Use OpenAI to generate a meaningful title
+      const conversationSummary = messages
+        .filter(m => m.role === 'user')
+        .map(m => m.content)
+        .join(' ')
+        .substring(0, 500); // Limit to 500 chars
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          messages: [
+            {
+              role: 'system',
+              content: 'Generate a short, descriptive title (3-5 words) for this coaching conversation. Focus on the main topic or challenge discussed. Examples: "Career Change Planning", "Time Management Goals", "Relationship Communication", "Productivity Challenges".'
+            },
+            {
+              role: 'user',
+              content: `Conversation content: ${conversationSummary}`
+            }
+          ],
+          max_tokens: 20,
+          temperature: 0.7
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const title = data.choices[0]?.message?.content?.trim();
+        return title || 'Coaching Session';
+      }
+    } catch (error) {
+      console.error('Error generating AI title:', error);
+    }
+
+    // Fallback to topic-based title
+    const content = messages.filter(m => m.role === 'user').map(m => m.content).join(' ').toLowerCase();
+    
+    if (content.includes('career') || content.includes('job') || content.includes('work')) {
+      return 'Career Discussion';
+    } else if (content.includes('relationship') || content.includes('family') || content.includes('friend')) {
+      return 'Relationship Coaching';
+    } else if (content.includes('time') || content.includes('productivity') || content.includes('organize')) {
+      return 'Productivity Planning';
+    } else if (content.includes('health') || content.includes('fitness') || content.includes('exercise')) {
+      return 'Health & Wellness';
+    } else if (content.includes('stress') || content.includes('anxiety') || content.includes('overwhelm')) {
+      return 'Stress Management';
+    } else if (content.includes('goal') || content.includes('achieve') || content.includes('plan')) {
+      return 'Goal Setting';
+    } else if (content.includes('decision') || content.includes('choose') || content.includes('option')) {
+      return 'Decision Making';
+    } else {
+      return 'Personal Growth';
+    }
+  };
 
   // Handle conversation selection from start page or sidebar
   const handleConversationSelect = async (conversationId: string) => {
@@ -276,6 +353,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       setShowEndChatButton(false);
       setShowContinueOptions(false);
       setIsIdle(false);
+      setLastActivityTime(new Date());
       setAiState('COACHING_Q1');
       setInputText('');
       resetTranscript();
@@ -518,11 +596,11 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
       }, continueMessage.content.length * 25);
     } else {
       // End conversation
-      handleEndChat();
+      await handleEndChat();
     }
   };
 
-  // Handle idle conversation options
+  // Enhanced idle conversation handling with AI-generated titles
   const handleIdleChoice = async (continueConversation: boolean) => {
     setIsIdle(false);
     
@@ -550,11 +628,8 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
         }
       }, continueMessage.content.length * 25);
     } else {
-      // Close conversation
-      if (currentConversationId) {
-        await updateConversation(currentConversationId, { completed: true });
-      }
-      handleEndChat();
+      // Close conversation with AI-generated title
+      await handleEndChat();
     }
   };
 
@@ -563,6 +638,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
     setIsLoading(true);
     setIsIdle(false); // Reset idle state on user activity
+    setLastActivityTime(new Date());
     
     const userMessage: Message = {
       id: uuidv4(),
@@ -679,8 +755,19 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
   };
 
   const handleEndChat = async () => {
-    if (currentConversationId) {
-      await updateConversation(currentConversationId, { completed: true });
+    if (currentConversationId && activeConversationMessages.length > 2) {
+      // Generate AI title for the conversation before ending
+      try {
+        const aiTitle = await generateConversationTitle(activeConversationMessages);
+        await updateConversation(currentConversationId, { 
+          completed: true,
+          title: aiTitle
+        });
+        console.log('✅ Conversation ended with AI-generated title:', aiTitle);
+      } catch (error) {
+        console.error('Error generating conversation title:', error);
+        await updateConversation(currentConversationId, { completed: true });
+      }
     }
     
     // Reset to start page
@@ -740,6 +827,13 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
 
   const stageInfo = getStageInfo();
   const goalStats = getGoalStats();
+
+  // Calculate idle time for display
+  const getIdleTime = () => {
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - lastActivityTime.getTime()) / (1000 * 60));
+    return diffInMinutes;
+  };
 
   // Show start page if no session has started
   if (!hasStartedSession) {
@@ -808,6 +902,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                   <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${stageInfo.color} animate-pulse`}></div>
                   <p className="text-sm text-purple-200">
                     {stageInfo.icon} {stageInfo.label} • Q{questionCount}/3 • {goalStats.pending} active goals
+                    {isIdle && <span className="text-orange-300"> • Idle {getIdleTime()}m</span>}
                   </p>
                 </div>
               </div>
@@ -836,15 +931,21 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             )}
             
             <div className="flex items-center space-x-1">
-              {/* End Chat Button - Only appears after multiple goals */}
-              {showEndChatButton && goalStats.pending >= 2 && (
+              {/* End Chat Button - Always visible for idle conversations */}
+              {(showEndChatButton || isIdle) && (
                 <button
                   onClick={handleEndChat}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 rounded-full border border-green-500/30 hover:bg-green-500/30 transition-all duration-300 animate-fade-in"
-                  title="End conversation"
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-full border transition-all duration-300 animate-fade-in ${
+                    isIdle 
+                      ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-300 border-orange-500/30 hover:bg-orange-500/30'
+                      : 'bg-gradient-to-r from-green-500/20 to-blue-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30'
+                  }`}
+                  title={isIdle ? "Close idle conversation" : "End conversation"}
                 >
                   <X className="w-4 h-4" />
-                  <span className="text-sm font-medium">End Chat</span>
+                  <span className="text-sm font-medium">
+                    {isIdle ? 'Close Chat' : 'End Chat'}
+                  </span>
                 </button>
               )}
 
@@ -974,13 +1075,15 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                 </div>
               )}
 
-              {/* Idle Options - Show after 2 minutes of inactivity */}
+              {/* Enhanced Idle Options - Show after 5 minutes of inactivity */}
               {isIdle && index === activeConversationMessages.length - 1 && !showContinueOptions && !pendingGoal && (
                 <div className="flex justify-start mt-4 animate-fade-in">
                   <div className="bg-gradient-to-r from-orange-500/10 to-yellow-500/10 rounded-xl p-4 border border-orange-500/20 backdrop-blur-sm">
                     <div className="flex items-center space-x-2 mb-3">
                       <Pause className="w-4 h-4 text-orange-400" />
-                      <p className="text-white text-sm font-medium">Still there? What would you like to do?</p>
+                      <p className="text-white text-sm font-medium">
+                        You've been idle for {getIdleTime()} minutes. What would you like to do?
+                      </p>
                     </div>
                     <div className="flex space-x-3">
                       <button
@@ -995,7 +1098,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
                         className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
                       >
                         <X className="w-4 h-4" />
-                        <span>Close</span>
+                        <span>Close Chat</span>
                       </button>
                     </div>
                   </div>
@@ -1094,7 +1197,7 @@ export const ConversationalCoach: React.FC<ConversationalCoachProps> = ({
             <div className="mt-4 text-center">
               <div className="inline-flex items-center space-x-2 px-4 py-2 bg-orange-500/10 text-orange-300 rounded-full border border-orange-500/20 backdrop-blur-sm">
                 <Pause className="w-4 h-4" />
-                <span className="text-sm font-medium">Session paused - choose an option above</span>
+                <span className="text-sm font-medium">Session idle for {getIdleTime()} minutes - choose an option above</span>
               </div>
             </div>
           )}
