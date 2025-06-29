@@ -45,10 +45,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="relative mx-auto w-16 h-16 mb-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl">
                 <span className="text-white font-bold text-xl">G</span>
               </div>
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
             </div>
             <p className="text-purple-300">Loading Goalify...</p>
           </div>
@@ -112,10 +111,9 @@ function MainApp() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="relative mx-auto w-16 h-16 mb-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl">
                 <span className="text-white font-bold text-xl">G</span>
               </div>
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
             </div>
             <p className="text-purple-300">Loading your data...</p>
           </div>
@@ -140,7 +138,6 @@ function MainApp() {
                     <span className="text-white font-bold text-lg">G</span>
                   </div>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
               </div>
               
               <div>
@@ -210,7 +207,7 @@ function MainApp() {
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
                   {currentView === item.id && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-xl animate-pulse"></div>
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-xl"></div>
                   )}
                 </button>
               );

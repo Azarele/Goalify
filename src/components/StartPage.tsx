@@ -50,7 +50,6 @@ export const StartPage: React.FC<StartPageProps> = ({
   };
 
   const handleConversationClick = (conversation: Conversation) => {
-    console.log('Starting conversation:', conversation.id, conversation.title);
     onSelectConversation(conversation.id);
   };
 
@@ -82,13 +81,12 @@ export const StartPage: React.FC<StartPageProps> = ({
       <div className="max-w-4xl w-full space-y-8">
         {/* Header Section */}
         <div className="text-center space-y-6">
-          {/* Animated Logo */}
+          {/* Logo */}
           <div className="relative mx-auto w-20 h-20 mb-6">
-            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500 rounded-full flex items-center justify-center shadow-2xl">
               <MessageCircle className="w-10 h-10 text-white" />
             </div>
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
-            <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center animate-bounce">
+            <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
               <Sparkles className="w-3 h-3 text-white" />
             </div>
           </div>
@@ -168,12 +166,9 @@ export const StartPage: React.FC<StartPageProps> = ({
               className="group relative px-8 py-4 bg-gradient-to-r from-purple-500 via-pink-500 to-blue-500 hover:from-purple-600 hover:via-pink-600 hover:to-blue-600 text-white rounded-2xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-2xl hover:shadow-purple-500/25"
             >
               <div className="flex items-center space-x-3">
-                <Plus className="w-6 h-6 group-hover:animate-bounce" />
+                <Plus className="w-6 h-6" />
                 <span>Start New Conversation</span>
               </div>
-              
-              {/* Animated border */}
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500 via-pink-500 to-blue-500 opacity-0 group-hover:opacity-20 animate-pulse"></div>
             </button>
 
             {/* Quick Tips */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MessageCircle, Mail, Lock, User, Eye, EyeOff, Loader, AlertCircle, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export const AuthScreen: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -16,6 +17,8 @@ export const AuthScreen: React.FC = () => {
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
 
   const { signUp, signIn, signInWithGoogle, isConfigured, resendConfirmation } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     // Check for error in URL params
@@ -189,11 +192,9 @@ export const AuthScreen: React.FC = () => {
 
     try {
       if (isSignUp) {
-        console.log('Attempting sign up for:', email);
         const { error } = await signUp(email, password);
         
         if (error) {
-          console.error('Sign up error:', error);
           const detailedError = getDetailedErrorMessage(error);
           
           if (error.message?.includes('User already registered') || error.message?.includes('user_already_exists')) {
@@ -209,13 +210,14 @@ export const AuthScreen: React.FC = () => {
           setMessage('Account created! Please check your email for the confirmation link before signing in.');
         }
       } else {
-        console.log('Attempting sign in for:', email);
         const { error } = await signIn(email, password);
         
         if (error) {
-          console.error('Sign in error:', error);
           const detailedError = getDetailedErrorMessage(error);
           setError(detailedError);
+        } else {
+          // Successful login - redirect to home
+          navigate('/', { replace: true });
         }
       }
     } catch (err) {
@@ -231,11 +233,9 @@ export const AuthScreen: React.FC = () => {
     setError('');
     
     try {
-      console.log('Attempting Google sign in');
       const { error } = await signInWithGoogle();
       
       if (error) {
-        console.error('Google sign in error:', error);
         const detailedError = getDetailedErrorMessage(error);
         setError(detailedError);
         setLoading(false);
@@ -261,7 +261,6 @@ export const AuthScreen: React.FC = () => {
                 <span className="text-white font-bold text-2xl">G</span>
               </div>
             </div>
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full animate-ping opacity-20"></div>
           </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
             Goalify

@@ -44,8 +44,6 @@ export const useAuth = () => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.id);
-      
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
@@ -73,7 +71,6 @@ export const useAuth = () => {
         }
       });
       
-      console.log('Sign up result:', { data: data?.user?.id, error });
       return { data, error };
     } catch (error) {
       console.error('Sign up error:', error);
@@ -92,7 +89,6 @@ export const useAuth = () => {
         password,
       });
       
-      console.log('Sign in result:', { data: data?.user?.id, error });
       return { data, error };
     } catch (error) {
       console.error('Sign in error:', error);
@@ -117,7 +113,6 @@ export const useAuth = () => {
         },
       });
       
-      console.log('Google sign in result:', { data, error });
       return { data, error };
     } catch (error) {
       console.error('Google sign in error:', error);
@@ -139,7 +134,6 @@ export const useAuth = () => {
         }
       });
       
-      console.log('Resend confirmation result:', { error });
       return { error };
     } catch (error) {
       console.error('Resend confirmation error:', error);
@@ -154,7 +148,6 @@ export const useAuth = () => {
 
     try {
       const { error } = await supabase.auth.signOut();
-      console.log('Sign out result:', { error });
       
       // Clear local state immediately
       setUser(null);
