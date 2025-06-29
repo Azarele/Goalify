@@ -1,5 +1,5 @@
-Contact: security@goalify.app
+Contact: security@phaiseit.com
 Expires: 2025-12-31T23:59:59.000Z
 Preferred-Languages: en
-Canonical: https://candid-eclair-5e32c5.netlify.app/.well-known/security.txt
-Policy: https://candid-eclair-5e32c5.netlify.app/security-policy
+Canonical: https://goalify.phaiseit.com/.well-known/security.txt
+Policy: https://goalify.phaiseit.com/security-policy
